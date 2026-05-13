@@ -10,6 +10,59 @@ Original project https://github.com/valerio-vaccaro/HAN
 
 ![image](images/bgNerdMinerV2.png)
 
+## Web Dashboard (NerdMiner v3)
+
+NerdMiner v3 adds a **built-in web dashboard** served directly from the device — no app, no cloud, no extra hardware required.
+
+![Web Dashboard](images/dashboard_preview.png)
+
+### Features
+
+- **Live stats** — hashrate, shares accepted/rejected, best difficulty, uptime, free heap, templates received
+- **Real-time hashrate chart** — canvas sparkline with 90-second rolling window
+- **Pool & WiFi status** — connection state, IP address, signal strength
+- **Config panel** — update wallet address, pool URL/port, and timezone directly from the browser
+- **OTA firmware update** — drag-and-drop `.bin` upload with progress bar; no USB cable needed
+- **Restart / Factory Reset** — one-click buttons with confirmation dialogs
+- **Optional API token auth** — protect the dashboard behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags)
+- **Mobile-friendly** — responsive dark UI, works on any browser
+
+### Accessing the Dashboard
+
+1. Flash the firmware and connect the device to your WiFi via the `NerdMinerAP` captive portal
+2. Find the device IP on your router, or check the serial output
+3. Open `http://<device-ip>/` in any browser
+
+### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/status` | Live mining stats (JSON) |
+| `GET` | `/api/system` | Chip info, free heap, uptime |
+| `GET` | `/api/config` | Current saved config |
+| `POST` | `/api/config` | Update config (restarts device) |
+| `POST` | `/api/restart` | Soft restart |
+| `POST` | `/api/reset` | Factory reset (clears NVS) |
+| `POST` | `/api/ota` | OTA firmware upload (multipart) |
+
+### Flash Scripts
+
+Use the included scripts to build and flash from source in one step:
+
+**Linux / macOS:**
+```bash
+chmod +x flash.sh && ./flash.sh
+```
+
+**Windows:**
+```
+flash.bat
+```
+
+Both scripts auto-detect your serial port and let you choose your board from a menu.
+
+---
+
 ## Requirements
 
 - TTGO T-Display S3 or any supported boards (check Build tutorial 👇)
