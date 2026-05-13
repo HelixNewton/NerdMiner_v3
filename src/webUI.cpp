@@ -44,7 +44,7 @@ static unsigned long last_config_save_ms = 0;
 
 // ── Auth helper ───────────────────────────────────────────────────────────
 static bool checkAuth() {
-#if defined(WEBUI_AUTH_TOKEN) && (sizeof(WEBUI_AUTH_TOKEN) > 1)
+#ifdef WEBUI_AUTH_TOKEN
     const String token = String(WEBUI_AUTH_TOKEN);
     if (!token.isEmpty()) {
         if (httpServer.hasHeader("X-API-Token") &&
