@@ -15,6 +15,7 @@
 #include "drivers/storage/SDCard.h"
 #include "ShaTests/nerdSHA_HWTest.h"
 #include "timeconst.h"
+#include "webUI.h"
 
 #ifdef TOUCH_ENABLE
 #include "TouchHandler.h"
@@ -184,6 +185,11 @@ void setup()
 #endif
 
   vTaskPrioritySet(NULL, 4);
+
+  /******** START WEB UI (if enabled) *****/
+#ifdef ENABLE_WEBUI
+  webui_init();
+#endif
 
   /******** MONITOR SETUP *****/
   setup_monitor();

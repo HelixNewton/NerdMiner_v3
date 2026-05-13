@@ -28,6 +28,9 @@ String printLocalTime(void);
 
 void resetStat();
 
+// Returns true when the stratum worker is subscribed and active
+bool getMinerSubscribed();
+
 typedef struct{
   uint8_t bytearray_target[32];
   uint8_t bytearray_pooltarget[32];
