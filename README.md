@@ -283,4 +283,8 @@ If you would like to contribute and help dev team with this project you can send
 
 If you want to order a fully assembled Nerdminer you can contribute to my job at 🛒[bitronics.store](https://bitronics.store)🛒
 
+Support the NerdMiner v3 fork:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buymeacoffee)](https://buymeacoffee.com/sx8yfh9zrbs)
+
 Enjoy
