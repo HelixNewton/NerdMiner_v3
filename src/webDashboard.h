@@ -1,307 +1,427 @@
 #pragma once
 #include <pgmspace.h>
 
-// Dashboard HTML served from PROGMEM — raw string literal, no escaping needed.
-// Keep under 30KB; ESP32 reads PROGMEM directly (memory-mapped flash).
+// Dashboard HTML served from PROGMEM.
 const char DASHBOARD_HTML[] PROGMEM = R"rawdash(<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NerdMiner Dashboard</title>
+<title>NerdMiner</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#07070f;--card:#0d0d1b;--border:#1c1c3a;
-  --accent:#00ffaa;--accent2:#7070ff;--accent3:#ff9500;
-  --text:#c0cce0;--muted:#5a6a88;--danger:#ff3c5a;
-  --success:#00ffaa;--warn:#ffaa00;
-  --font:'Courier New',Courier,monospace;
+  --bg:#0d0f14;--sf:#111318;--bd:#1e2230;
+  --mt:#475569;--tx:#e2e8f0;
+  --gold:#f4d03f;--grn:#22c55e;--red:#ef4444;
+  --blu:#60a5fa;--tel:#2dd4bf;--pur:#a78bfa;
+  --sw:200px;
 }
-body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;min-height:100vh;padding:8px}
-a{color:var(--accent);text-decoration:none}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,sans-serif;font-size:13px;display:flex}
 
-/* ── Header ── */
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;
-  background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;flex-wrap:wrap;gap:6px}
-.hdr-title{font-size:16px;font-weight:bold;color:var(--accent);letter-spacing:1px}
-.hdr-sub{color:var(--muted);font-size:11px}
-.hdr-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.status-dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
-.dot-green{background:var(--success);box-shadow:0 0 6px var(--success)}
-.dot-red{background:var(--danger);box-shadow:0 0 6px var(--danger)}
-.dot-amber{background:var(--warn);box-shadow:0 0 6px var(--warn)}
-.status-badge{font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--border);display:flex;align-items:center}
-.ver-badge{color:var(--muted);font-size:11px}
-.refresh-ts{color:var(--muted);font-size:10px}
+/* ── Sidebar ── */
+.sb{width:var(--sw);min-width:var(--sw);height:100vh;background:var(--sf);border-right:.5px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
+.sb-logo{padding:18px 16px 16px;border-bottom:.5px solid var(--bd);display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600}
+.sb-logo i{color:var(--gold);font-size:20px}
+.sb-nav{flex:1;padding:6px 0;overflow-y:auto}
+.nav-grp{padding:14px 16px 3px;font-size:10px;letter-spacing:.7px;text-transform:uppercase;color:var(--mt)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:7px 16px;font-size:13px;color:var(--mt);cursor:pointer;border-left:2px solid transparent;transition:color .15s,background .15s}
+.nav-item:hover{color:var(--tx);background:rgba(255,255,255,.03)}
+.nav-item.active{color:var(--tx);border-left-color:var(--blu);background:rgba(96,165,250,.06)}
+.nav-item i{font-size:15px;flex-shrink:0}
+.sb-foot{padding:14px 12px;border-top:.5px solid var(--bd)}
+.hp{display:flex;align-items:center;gap:6px;background:rgba(34,197,94,.1);border:.5px solid var(--grn);border-radius:6px;padding:6px 10px;font-size:11px;color:var(--grn)}
+.hp-dot{width:6px;height:6px;border-radius:50%;background:var(--grn);flex-shrink:0}
+.hp-sub{font-size:10px;color:var(--mt);margin-top:5px;text-align:center}
 
-/* ── Stats grid ── */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;
-  transition:border-color .3s}
-.stat-card:hover{border-color:var(--accent2)}
-.stat-label{color:var(--muted);font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px}
-.stat-value{font-size:18px;font-weight:bold;color:var(--accent);white-space:nowrap}
-.stat-value.sm{font-size:14px}
-.stat-sub{color:var(--muted);font-size:10px;margin-top:2px}
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;height:100vh;overflow:hidden;min-width:0}
 
-/* ── Chart ── */
-.chart-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px}
-.chart-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.chart-label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
-.chart-cur{color:var(--accent);font-size:13px}
-canvas{width:100%;height:70px;display:block;border-radius:4px}
+/* ── Topbar ── */
+.tb{height:56px;min-height:56px;background:var(--sf);border-bottom:.5px solid var(--bd);display:flex;align-items:center;padding:0 20px;gap:10px;flex-shrink:0;z-index:10}
+.tb-t{font-size:15px;font-weight:600}
+.tb-s{font-size:11px;color:var(--mt);margin-left:3px}
+.tb-sp{flex:1}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:500}
+.b-ok{background:rgba(34,197,94,.12);border:.5px solid var(--grn);color:var(--grn)}
+.b-err{background:rgba(239,68,68,.12);border:.5px solid var(--red);color:var(--red)}
+.b-ver{background:rgba(96,165,250,.1);border:.5px solid rgba(96,165,250,.3);color:var(--blu)}
+.bdot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
+.pool-sel{background:var(--bg);border:.5px solid var(--bd);color:var(--tx);font-size:12px;padding:4px 8px;border-radius:6px;cursor:pointer;font-family:inherit;max-width:160px}
+.pool-sel:focus{outline:none;border-color:var(--blu)}
 
-/* ── Row 2: Pool + WiFi ── */
-.info-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
-@media(max-width:500px){.info-row{grid-template-columns:1fr}}
-.info-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
-.info-title{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;
-  display:flex;align-items:center;gap:6px}
-.info-line{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12px}
-.info-key{color:var(--muted)}
-.info-val{color:var(--text);text-align:right;word-break:break-all;max-width:60%}
-.signal-bar{display:inline-flex;align-items:flex-end;gap:2px;height:12px;vertical-align:middle;margin-left:4px}
-.signal-bar span{background:var(--muted);border-radius:1px;width:3px}
-.signal-bar span.active{background:var(--accent)}
+/* ── Content ── */
+.ct{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;min-height:0}
 
-/* ── Collapsible panels ── */
-.panel{background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden}
-.panel-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;cursor:pointer;
-  user-select:none;transition:background .2s}
-.panel-hdr:hover{background:#111122}
-.panel-hdr-title{font-size:12px;color:var(--text);letter-spacing:.5px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
-.panel-arrow{color:var(--muted);transition:transform .25s;font-size:10px}
-.panel-arrow.open{transform:rotate(90deg)}
-.panel-body{padding:12px 14px;border-top:1px solid var(--border);display:none}
-.panel-body.open{display:block}
+/* ── Stat cards ── */
+.sr{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.sc{background:var(--sf);border:.5px solid var(--bd);border-radius:10px;padding:14px 14px 12px;border-top-width:2px;border-top-style:solid}
+.sc-lbl{display:flex;align-items:center;gap:5px;font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--mt);margin-bottom:8px}
+.sc-lbl i{font-size:13px}
+.sc-v{font-size:20px;font-weight:500;line-height:1;margin-bottom:4px}
+.sc-s{font-size:11px;color:var(--mt)}
 
-/* ── Forms ── */
-.form-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-.form-label{color:var(--muted);font-size:11px;width:110px;flex-shrink:0}
-.form-input{flex:1;min-width:120px;background:#060610;border:1px solid var(--border);
-  color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:4px;
-  outline:none;transition:border-color .2s}
-.form-input:focus{border-color:var(--accent2)}
-.form-input[type=number]{max-width:90px}
-.form-check{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.form-check input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
-.form-check label{font-size:12px;color:var(--text);cursor:pointer}
-.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.btn{padding:6px 14px;border-radius:5px;border:none;cursor:pointer;font-family:var(--font);
-  font-size:12px;font-weight:bold;letter-spacing:.5px;transition:opacity .2s,box-shadow .2s}
-.btn:hover{opacity:.85}
-.btn-primary{background:var(--accent);color:#000}
-.btn-primary:hover{box-shadow:0 0 10px var(--accent)}
-.btn-secondary{background:transparent;color:var(--accent2);border:1px solid var(--accent2)}
-.btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger)}
-.btn-warn{background:transparent;color:var(--warn);border:1px solid var(--warn)}
+/* ── Mid row ── */
+.mr{display:grid;grid-template-columns:1fr 320px;gap:10px}
+.panel{background:var(--sf);border:.5px solid var(--bd);border-radius:10px;padding:16px}
+.ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.ph-t{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.ph-t i{color:var(--mt);font-size:16px}
+.ptabs{display:flex;gap:2px}
+.ptab{padding:3px 9px;border-radius:6px;font-size:11px;cursor:pointer;color:var(--mt);border:.5px solid transparent;transition:all .15s}
+.ptab:hover{color:var(--tx)}
+.ptab.active{color:var(--gold);border-color:rgba(244,208,63,.3);background:rgba(244,208,63,.07)}
+.csv-wrap{position:relative;height:140px}
+svg.csv{width:100%;height:100%;display:block;overflow:visible}
+.cstrip{display:grid;grid-template-columns:repeat(5,1fr);border-top:.5px solid var(--bd);margin-top:12px;padding-top:10px}
+.ci{text-align:center}
+.ci-l{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--mt);margin-bottom:3px}
+.ci-v{font-size:12px;font-weight:500}
 
-/* ── OTA progress ── */
-.ota-progress{margin-top:10px;display:none}
-.progress-track{background:#060610;border:1px solid var(--border);border-radius:4px;height:18px;overflow:hidden}
-.progress-fill{background:var(--accent2);height:100%;width:0%;transition:width .3s;border-radius:4px;
-  display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff}
-.ota-msg{margin-top:6px;font-size:11px;color:var(--muted)}
+/* ── Pool panel ── */
+.pp-hdr{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:.5px solid var(--bd)}
+.pp-icon{width:34px;height:34px;background:rgba(96,165,250,.1);border:.5px solid rgba(96,165,250,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pp-icon i{color:var(--blu);font-size:17px}
+.pp-name{font-size:13px;font-weight:600;line-height:1.3}
+.pp-url{font-size:11px;color:var(--mt);margin-top:2px;word-break:break-all}
+.pr{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:.5px solid var(--bd)}
+.pr:last-of-type{border-bottom:none}
+.pr-k{font-size:12px;color:var(--mt)}
+.pr-v{font-size:12px;font-weight:500;text-align:right;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vg{color:var(--grn)}.vr{color:var(--red)}.vb{color:var(--gold)}
+.dbars{display:flex;align-items:flex-end;gap:3px;height:30px;margin-top:12px;padding-top:12px;border-top:.5px solid var(--bd)}
+.dbar{flex:1;background:rgba(96,165,250,.2);border-radius:2px}
+.dbar.lat{background:var(--blu)}
+.dbars-lbl{font-size:10px;color:var(--mt);margin-top:5px}
 
-/* ── Alert toast ── */
-.toast{position:fixed;top:12px;right:12px;padding:10px 16px;border-radius:6px;font-size:12px;
-  z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;max-width:260px}
-.toast.show{opacity:1}
-.toast-ok{background:#0a2a1a;border:1px solid var(--success);color:var(--success)}
-.toast-err{background:#2a0a0f;border:1px solid var(--danger);color:var(--danger)}
-.toast-warn{background:#2a1a00;border:1px solid var(--warn);color:var(--warn)}
+/* ── Bottom row ── */
+.br{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.bp{background:var(--sf);border:.5px solid var(--bd);border-radius:10px;padding:16px}
+
+/* Shares table */
+.st{width:100%;border-collapse:collapse;margin-top:8px}
+.st th{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--mt);padding:0 0 8px;font-weight:500;text-align:left;border-bottom:.5px solid var(--bd)}
+.st th:last-child,.st td:last-child{text-align:right}
+.st td{padding:6px 0;font-size:12px;border-bottom:.5px solid rgba(30,34,48,.5)}
+.st tr:last-child td{border-bottom:none}
+.pa{display:inline-flex;align-items:center;gap:3px;background:rgba(34,197,94,.1);border:.5px solid var(--grn);color:var(--grn);border-radius:6px;padding:2px 6px;font-size:10px;font-weight:500}
+.pj{display:inline-flex;align-items:center;gap:3px;background:rgba(239,68,68,.1);border:.5px solid var(--red);color:var(--red);border-radius:6px;padding:2px 6px;font-size:10px;font-weight:500}
+
+/* System panel */
+.sr2{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:.5px solid rgba(30,34,48,.5)}
+.sr2:last-child{border-bottom:none}
+.sr2-k{font-size:12px;color:var(--mt)}
+.sr2-v{font-size:12px;font-weight:500;text-align:right}
+.mb-t{width:80px;height:5px;background:var(--bd);border-radius:3px;overflow:hidden;margin-top:3px;margin-left:auto}
+.mb-f{height:100%;background:var(--grn);border-radius:3px;transition:width .5s}
+
+/* Action buttons */
+.ab{width:100%;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;border:.5px solid var(--bd);background:transparent;color:var(--tx);font-size:13px;font-family:inherit;cursor:pointer;transition:border-color .15s,color .15s,background .15s;margin-bottom:6px;text-align:left}
+.ab:last-of-type{margin-bottom:0}
+.ab i{font-size:15px;flex-shrink:0;color:var(--mt)}
+.ab:hover{border-color:var(--blu);background:rgba(96,165,250,.05);color:var(--blu)}
+.ab:hover i{color:var(--blu)}
+.ab.danger:hover{border-color:var(--red);background:rgba(239,68,68,.05);color:var(--red)}
+.ab.danger:hover i{color:var(--red)}
+.coffee{display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 12px;border-radius:6px;border:.5px solid rgba(244,208,63,.3);background:rgba(244,208,63,.05);color:var(--gold);font-size:13px;text-decoration:none;transition:background .15s;font-family:inherit}
+.coffee:hover{background:rgba(244,208,63,.1)}
+.coffee i{font-size:15px;flex-shrink:0}
 
 /* ── Footer ── */
-.footer{display:flex;justify-content:space-between;align-items:center;padding:8px 0;
-  color:var(--muted);font-size:10px;flex-wrap:wrap;gap:6px}
-.footer-actions{display:flex;gap:8px}
+.ft{height:36px;min-height:36px;background:var(--sf);border-top:.5px solid var(--bd);display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:11px;color:var(--mt);flex-shrink:0}
+
+/* ── Toast ── */
+.toast{position:fixed;top:14px;right:14px;z-index:999;padding:9px 14px;border-radius:6px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .25s;max-width:280px}
+.toast.show{opacity:1}
+.t-ok{background:#0c1f14;border:.5px solid var(--grn);color:var(--grn)}
+.t-err{background:#1c0e0e;border:.5px solid var(--red);color:var(--red)}
+.t-warn{background:#1c1708;border:.5px solid var(--gold);color:var(--gold)}
+
+/* ── Modals ── */
+.mo{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;display:none;align-items:center;justify-content:center}
+.mo.show{display:flex}
+.md{background:var(--sf);border:.5px solid var(--bd);border-radius:10px;width:440px;max-width:95vw;max-height:90vh;overflow-y:auto}
+.md-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:.5px solid var(--bd)}
+.md-t{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.md-t i{color:var(--mt)}
+.md-x{background:none;border:none;color:var(--mt);cursor:pointer;font-size:20px;padding:0 3px;line-height:1}
+.md-x:hover{color:var(--tx)}
+.md-b{padding:16px}
+.md-f{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:.5px solid var(--bd)}
+.fg{margin-bottom:12px}
+.fl{display:block;font-size:11px;color:var(--mt);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+.fi{width:100%;background:var(--bg);border:.5px solid var(--bd);color:var(--tx);font-family:inherit;font-size:13px;padding:7px 10px;border-radius:6px;outline:none;transition:border-color .15s}
+.fi:focus{border-color:var(--blu)}
+.fr2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fc{display:flex;align-items:center;gap:8px;margin-top:4px}
+.fc input{accent-color:var(--grn);width:14px;height:14px;cursor:pointer}
+.fc label{font-size:13px;cursor:pointer}
+.btn{padding:7px 14px;border-radius:6px;font-size:13px;font-family:inherit;cursor:pointer;border:.5px solid transparent;transition:all .15s;font-weight:500}
+.btn-p{background:var(--blu);color:#0d0f14;border-color:var(--blu)}
+.btn-p:hover{background:#93c5fd;border-color:#93c5fd}
+.btn-g{background:transparent;color:var(--tx);border-color:var(--bd)}
+.btn-g:hover{border-color:var(--tx)}
+.op-w{margin-top:10px;display:none}
+.pt{height:6px;background:var(--bd);border-radius:3px;overflow:hidden}
+.pf{height:100%;width:0%;background:var(--blu);border-radius:3px;transition:width .3s}
+.pm{font-size:11px;color:var(--mt);margin-top:6px}
+
+/* ── Responsive ── */
+@media(max-width:1200px){.sr{grid-template-columns:repeat(3,1fr)}.mr{grid-template-columns:1fr}}
+@media(max-width:900px){.br{grid-template-columns:1fr 1fr}}
+@media(max-width:680px){.sb{display:none}.sr{grid-template-columns:repeat(2,1fr)}.br{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 
+<!-- Sidebar -->
+<aside class="sb">
+  <div class="sb-logo"><i class="ti ti-bolt"></i>NerdMiner</div>
+  <nav class="sb-nav">
+    <div class="nav-grp">Mining</div>
+    <div class="nav-item active" onclick="nav(this)"><i class="ti ti-layout-dashboard"></i>Overview</div>
+    <div class="nav-item" onclick="nav(this)"><i class="ti ti-cpu"></i>Workers</div>
+    <div class="nav-item" onclick="nav(this)"><i class="ti ti-server"></i>Pools</div>
+    <div class="nav-grp">Analytics</div>
+    <div class="nav-item" onclick="nav(this)"><i class="ti ti-chart-bar"></i>Statistics</div>
+    <div class="nav-item" onclick="nav(this)"><i class="ti ti-coins"></i>Shares</div>
+    <div class="nav-grp">System</div>
+    <div class="nav-item" onclick="nav(this)"><i class="ti ti-bell"></i>Alerts</div>
+    <div class="nav-item" onclick="nav(this)"><i class="ti ti-terminal"></i>Logs</div>
+    <div class="nav-item" onclick="openCfg()"><i class="ti ti-settings"></i>Settings</div>
+  </nav>
+  <div class="sb-foot">
+    <div class="hp" id="healthPill"><span class="hp-dot" id="healthDot"></span><span id="healthTxt">Healthy</span></div>
+    <div class="hp-sub">All systems operational</div>
+  </div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+  <header class="tb">
+    <span class="tb-t">Overview</span>
+    <span class="tb-s" id="tbSub">Live mining monitor</span>
+    <div class="tb-sp"></div>
+    <span class="badge b-ok" id="connBadge"><span class="bdot"></span><span id="connTxt">Connecting</span></span>
+    <span class="badge b-ver" id="verBadge">v—</span>
+    <select class="pool-sel" id="poolSel" title="Pool" onchange="onPoolSel(this.value)">
+      <option value="">— Pool —</option>
+      <option value="public-pool.io:21496">public-pool.io</option>
+      <option value="pool.nerdminers.org:3333">nerdminers.org</option>
+      <option value="pool.pyblock.xyz:3333">pyblock.xyz</option>
+    </select>
+  </header>
+
+  <div class="ct">
+
+    <!-- Stats row -->
+    <div class="sr">
+      <div class="sc" style="border-top-color:var(--gold)">
+        <div class="sc-lbl" style="color:var(--gold)"><i class="ti ti-activity"></i>Hashrate</div>
+        <div class="sc-v" style="color:var(--gold)" id="scH">—</div>
+        <div class="sc-s" id="scHs">—</div>
+      </div>
+      <div class="sc" style="border-top-color:var(--grn)">
+        <div class="sc-lbl" style="color:var(--grn)"><i class="ti ti-circle-check"></i>Accepted</div>
+        <div class="sc-v" style="color:var(--grn)" id="scA">—</div>
+        <div class="sc-s" id="scAs">shares</div>
+      </div>
+      <div class="sc" style="border-top-color:var(--red)">
+        <div class="sc-lbl" style="color:var(--red)"><i class="ti ti-circle-x"></i>Rejected</div>
+        <div class="sc-v" style="color:var(--red)" id="scR">0</div>
+        <div class="sc-s">this session</div>
+      </div>
+      <div class="sc" style="border-top-color:var(--blu)">
+        <div class="sc-lbl" style="color:var(--blu)"><i class="ti ti-clock"></i>Uptime</div>
+        <div class="sc-v" style="color:var(--blu);font-size:16px" id="scU">—</div>
+        <div class="sc-s" id="scUs">—</div>
+      </div>
+      <div class="sc" style="border-top-color:var(--tel)">
+        <div class="sc-lbl" style="color:var(--tel)"><i class="ti ti-database"></i>Free Heap</div>
+        <div class="sc-v" style="color:var(--tel);font-size:16px" id="scF">—</div>
+        <div class="sc-s" id="scFs">of total</div>
+      </div>
+      <div class="sc" style="border-top-color:var(--pur)">
+        <div class="sc-lbl" style="color:var(--pur)"><i class="ti ti-cpu"></i>Templates</div>
+        <div class="sc-v" style="color:var(--pur)" id="scT">—</div>
+        <div class="sc-s">jobs received</div>
+      </div>
+    </div>
+
+    <!-- Chart + Pool -->
+    <div class="mr">
+      <div class="panel">
+        <div class="ph">
+          <div class="ph-t"><i class="ti ti-chart-line"></i>Hashrate history</div>
+          <div class="ptabs">
+            <span class="ptab" onclick="setTab(this,'1h')">1H</span>
+            <span class="ptab" onclick="setTab(this,'6h')">6H</span>
+            <span class="ptab active" onclick="setTab(this,'24h')">24H</span>
+            <span class="ptab" onclick="setTab(this,'7d')">7D</span>
+            <span class="ptab" onclick="setTab(this,'30d')">30D</span>
+          </div>
+        </div>
+        <div class="csv-wrap">
+          <svg class="csv" id="hrSvg" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f4d03f" stop-opacity="0.2"/>
+                <stop offset="100%" stop-color="#f4d03f" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path id="hrFill" fill="url(#cg)" stroke="none"/>
+            <path id="hrLine" fill="none" stroke="#f4d03f" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="cstrip">
+          <div class="ci"><div class="ci-l">Current</div><div class="ci-v" id="csN">—</div></div>
+          <div class="ci"><div class="ci-l">Avg</div><div class="ci-v" id="csA">—</div></div>
+          <div class="ci"><div class="ci-l" style="color:var(--grn)">High</div><div class="ci-v" style="color:var(--grn)" id="csHi">—</div></div>
+          <div class="ci"><div class="ci-l" style="color:var(--red)">Low</div><div class="ci-v" style="color:var(--red)" id="csLo">—</div></div>
+          <div class="ci"><div class="ci-l" style="color:var(--gold)">Variance</div><div class="ci-v" style="color:var(--gold)" id="csV">—</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><div class="ph-t"><i class="ti ti-server"></i>Pool info</div></div>
+        <div class="pp-hdr">
+          <div class="pp-icon"><i class="ti ti-cloud-computing"></i></div>
+          <div>
+            <div class="pp-name" id="ppName">—</div>
+            <div class="pp-url" id="ppUrl">—</div>
+          </div>
+        </div>
+        <div class="pr"><span class="pr-k">Status</span><span class="pr-v vg" id="ppSt">—</span></div>
+        <div class="pr"><span class="pr-k">Last share</span><span class="pr-v" id="ppLs">—</span></div>
+        <div class="pr"><span class="pr-k">Best difficulty</span><span class="pr-v vb" id="ppDf">—</span></div>
+        <div class="pr"><span class="pr-k">Worker</span><span class="pr-v" id="ppWk">—</span></div>
+        <div class="pr"><span class="pr-k">Wallet</span><span class="pr-v" id="ppWa">—</span></div>
+        <div class="dbars" id="dbars"></div>
+        <div class="dbars-lbl">Difficulty trend (last 7 samples)</div>
+      </div>
+    </div>
+
+    <!-- Bottom row -->
+    <div class="br">
+      <div class="bp">
+        <div class="ph"><div class="ph-t"><i class="ti ti-list-check"></i>Recent shares</div></div>
+        <table class="st">
+          <thead><tr><th>Time</th><th>Result</th><th>Difficulty</th><th>Latency</th></tr></thead>
+          <tbody id="sTbody"><tr><td colspan="4" style="color:var(--mt);text-align:center;padding:14px 0">Waiting for shares…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="bp">
+        <div class="ph"><div class="ph-t"><i class="ti ti-device-desktop"></i>System</div></div>
+        <div class="sr2"><span class="sr2-k">Chip</span><span class="sr2-v" id="sChip">—</span></div>
+        <div class="sr2"><span class="sr2-k">CPU</span><span class="sr2-v" id="sCpu">—</span></div>
+        <div class="sr2">
+          <span class="sr2-k">Memory</span>
+          <div>
+            <div class="sr2-v" id="sMem">—</div>
+            <div class="mb-t"><div class="mb-f" id="sMemB" style="width:0%"></div></div>
+          </div>
+        </div>
+        <div class="sr2"><span class="sr2-k">Flash</span><span class="sr2-v" id="sFlash">—</span></div>
+        <div class="sr2"><span class="sr2-k">MAC</span><span class="sr2-v" id="sMac">—</span></div>
+        <div class="sr2"><span class="sr2-k">SDK</span><span class="sr2-v" id="sSdk">—</span></div>
+        <div class="sr2"><span class="sr2-k">IP address</span><span class="sr2-v vg" id="sIp">—</span></div>
+      </div>
+
+      <div class="bp">
+        <div class="ph"><div class="ph-t"><i class="ti ti-settings-2"></i>Quick actions</div></div>
+        <button class="ab" onclick="openCfg()"><i class="ti ti-adjustments"></i>Configure miner</button>
+        <button class="ab" onclick="openOta()"><i class="ti ti-upload"></i>Firmware update (OTA)</button>
+        <button class="ab" onclick="testPool()"><i class="ti ti-plug-connected"></i>Test pool connection</button>
+        <button class="ab" onclick="restartDevice()"><i class="ti ti-refresh"></i>Restart miner</button>
+        <button class="ab danger" onclick="factoryReset()"><i class="ti ti-trash"></i>Factory reset</button>
+        <a class="coffee" href="https://buymeacoffee.com/sx8yfh9zrbs" target="_blank" rel="noopener">
+          <i class="ti ti-coffee"></i>Buy me a coffee
+        </a>
+      </div>
+    </div>
+
+  </div><!-- /.ct -->
+
+  <footer class="ft">
+    <span id="ftL">Last updated —</span>
+    <span id="ftC">Timezone UTC+0 · Auto-refresh 3s</span>
+    <span id="ftR">Save stats to flash (NVS): —</span>
+  </footer>
+</div><!-- /.main -->
+
 <!-- Toast -->
-<div id="toast" class="toast"></div>
+<div class="toast" id="toast"></div>
 
-<!-- Header -->
-<div class="hdr">
-  <div>
-    <div class="hdr-title">⚡ NerdMiner Dashboard</div>
-    <div class="hdr-sub" id="hostname">Loading…</div>
-  </div>
-  <div class="hdr-right">
-    <span class="status-badge" id="statusBadge">
-      <span class="status-dot dot-amber" id="statusDot"></span>
-      <span id="statusText">Connecting</span>
-    </span>
-    <span class="ver-badge" id="verBadge">—</span>
-    <span class="refresh-ts" id="lastUpdate">—</span>
-  </div>
-</div>
-
-<!-- Stats Row -->
-<div class="stats-grid">
-  <div class="stat-card">
-    <div class="stat-label">Hashrate</div>
-    <div class="stat-value" id="hashrate">—</div>
-    <div class="stat-sub" id="hashrateKhs">0 KH/s</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Shares</div>
-    <div class="stat-value" id="shares">—</div>
-    <div class="stat-sub" id="valids">0 valid blocks</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Best Diff</div>
-    <div class="stat-value sm" id="bestDiff">—</div>
-    <div class="stat-sub">all-time best</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Uptime</div>
-    <div class="stat-value sm" id="uptime">—</div>
-    <div class="stat-sub" id="uptimeSub">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Free Heap</div>
-    <div class="stat-value sm" id="freeHeap">—</div>
-    <div class="stat-sub" id="heapPct">of total</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Templates</div>
-    <div class="stat-value" id="templates">—</div>
-    <div class="stat-sub">jobs received</div>
-  </div>
-</div>
-
-<!-- Hashrate Chart -->
-<div class="chart-card">
-  <div class="chart-header">
-    <span class="chart-label">Hashrate — Last 90s</span>
-    <span class="chart-cur" id="chartCur">—</span>
-  </div>
-  <canvas id="hrChart"></canvas>
-</div>
-
-<!-- Pool + WiFi -->
-<div class="info-row">
-  <div class="info-card">
-    <div class="info-title">
-      <span class="status-dot" id="poolDot"></span>Pool
+<!-- Config modal -->
+<div class="mo" id="moCfg">
+  <div class="md">
+    <div class="md-h">
+      <div class="md-t"><i class="ti ti-adjustments"></i>Configure miner</div>
+      <button class="md-x" onclick="closeM('moCfg')">&#x2715;</button>
     </div>
-    <div class="info-line"><span class="info-key">Host</span><span class="info-val" id="poolHost">—</span></div>
-    <div class="info-line"><span class="info-key">Port</span><span class="info-val" id="poolPort">—</span></div>
-    <div class="info-line"><span class="info-key">Status</span><span class="info-val" id="poolStatus">—</span></div>
-    <div class="info-line"><span class="info-key">Wallet</span><span class="info-val" id="poolWallet">—</span></div>
-  </div>
-  <div class="info-card">
-    <div class="info-title">
-      <span class="status-dot dot-green" id="wifiDot"></span>Network
+    <div class="md-b">
+      <div class="fg">
+        <label class="fl">Wallet address</label>
+        <input class="fi" id="cWallet" type="text" placeholder="bc1q… or 1… or 3…">
+      </div>
+      <div class="fr2">
+        <div class="fg">
+          <label class="fl">Pool URL</label>
+          <input class="fi" id="cUrl" type="text" placeholder="public-pool.io">
+        </div>
+        <div class="fg">
+          <label class="fl">Pool port</label>
+          <input class="fi" id="cPort" type="number" min="1" max="65535" placeholder="21496">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Pool password</label>
+        <input class="fi" id="cPass" type="text" placeholder="x">
+      </div>
+      <div class="fg" style="max-width:160px">
+        <label class="fl">Timezone (UTC offset)</label>
+        <input class="fi" id="cTz" type="number" min="-12" max="14" placeholder="0">
+      </div>
+      <div class="fc">
+        <input type="checkbox" id="cSave">
+        <label for="cSave">Save mining stats to flash (NVS)</label>
+      </div>
+      <div id="cMsg" style="font-size:12px;color:var(--mt);margin-top:10px"></div>
     </div>
-    <div class="info-line"><span class="info-key">SSID</span><span class="info-val" id="wifiSsid">—</span></div>
-    <div class="info-line"><span class="info-key">Signal</span>
-      <span class="info-val">
-        <span id="wifiRssi">—</span> dBm
-        <span class="signal-bar" id="signalBar">
-          <span style="height:3px"></span>
-          <span style="height:5px"></span>
-          <span style="height:8px"></span>
-          <span style="height:11px"></span>
-        </span>
-      </span>
-    </div>
-    <div class="info-line"><span class="info-key">IP</span><span class="info-val" id="localIp">—</span></div>
-    <div class="info-line"><span class="info-key">Total Hash</span><span class="info-val" id="totalHash">—</span></div>
-  </div>
-</div>
-
-<!-- Config Panel -->
-<div class="panel" id="cfgPanel">
-  <div class="panel-hdr" onclick="togglePanel('cfgPanel')">
-    <span class="panel-hdr-title">⚙ Configuration</span>
-    <span class="panel-arrow" id="cfgArrow">▶</span>
-  </div>
-  <div class="panel-body" id="cfgBody">
-    <div class="form-row">
-      <span class="form-label">Pool URL</span>
-      <input class="form-input" id="cfgPoolUrl" type="text" placeholder="public-pool.io">
-    </div>
-    <div class="form-row">
-      <span class="form-label">Pool Port</span>
-      <input class="form-input" id="cfgPoolPort" type="number" min="1" max="65535" placeholder="21496">
-    </div>
-    <div class="form-row">
-      <span class="form-label">Wallet Address</span>
-      <input class="form-input" id="cfgWallet" type="text" placeholder="bc1q...">
-    </div>
-    <div class="form-row">
-      <span class="form-label">Pool Password</span>
-      <input class="form-input" id="cfgPoolPass" type="text" placeholder="x">
-    </div>
-    <div class="form-row">
-      <span class="form-label">Timezone UTC</span>
-      <input class="form-input" id="cfgTimezone" type="number" min="-12" max="14" placeholder="0">
-    </div>
-    <div class="form-check">
-      <input type="checkbox" id="cfgSaveStats">
-      <label for="cfgSaveStats">Save mining statistics to flash (NVS)</label>
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-primary" onclick="saveConfig()">💾 Save &amp; Restart</button>
-      <button class="btn btn-secondary" onclick="loadConfig()">↺ Reload</button>
-    </div>
-    <div id="cfgMsg" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
-  </div>
-</div>
-
-<!-- OTA Panel -->
-<div class="panel" id="otaPanel">
-  <div class="panel-hdr" onclick="togglePanel('otaPanel')">
-    <span class="panel-hdr-title">🔄 Firmware Update (OTA)</span>
-    <span class="panel-arrow" id="otaArrow">▶</span>
-  </div>
-  <div class="panel-body" id="otaBody">
-    <p style="color:var(--muted);font-size:11px;margin-bottom:10px">
-      Upload a compiled .bin firmware file. The device will restart automatically.
-      Current: <span id="otaCurrentVer" style="color:var(--accent)">—</span>
-    </p>
-    <div class="form-row">
-      <input class="form-input" type="file" id="otaFile" accept=".bin" style="flex:1;padding:4px">
-      <button class="btn btn-secondary" onclick="startOta()">⬆ Flash</button>
-    </div>
-    <div class="ota-progress" id="otaProgress">
-      <div class="progress-track"><div class="progress-fill" id="otaFill">0%</div></div>
-      <div class="ota-msg" id="otaMsg">Uploading…</div>
+    <div class="md-f">
+      <button class="btn btn-g" onclick="closeM('moCfg')">Cancel</button>
+      <button class="btn btn-p" onclick="saveCfg()">Save &amp; restart</button>
     </div>
   </div>
 </div>
 
-<!-- System Panel -->
-<div class="panel" id="sysPanel">
-  <div class="panel-hdr" onclick="togglePanel('sysPanel')">
-    <span class="panel-hdr-title">🖥 System Info</span>
-    <span class="panel-arrow" id="sysPanelArrow">▶</span>
-  </div>
-  <div class="panel-body" id="sysPanelBody">
-    <div class="info-line"><span class="info-key">Firmware</span><span class="info-val" id="sysFw">—</span></div>
-    <div class="info-line"><span class="info-key">Hostname</span><span class="info-val" id="sysHost">—</span></div>
-    <div class="info-line"><span class="info-key">Total Heap</span><span class="info-val" id="sysTotalHeap">—</span></div>
-    <div class="info-line"><span class="info-key">Min Free Heap</span><span class="info-val" id="sysMinHeap">—</span></div>
-    <div class="info-line"><span class="info-key">CPU Freq</span><span class="info-val" id="sysCpu">—</span></div>
-    <div class="info-line"><span class="info-key">Flash Size</span><span class="info-val" id="sysFlash">—</span></div>
-    <div class="info-line"><span class="info-key">MAC Address</span><span class="info-val" id="sysMac">—</span></div>
-    <div class="info-line"><span class="info-key">SDK Version</span><span class="info-val" id="sysSdk">—</span></div>
-    <div class="info-line"><span class="info-key">Chip Model</span><span class="info-val" id="sysChip">—</span></div>
-  </div>
-</div>
-
-<!-- Footer -->
-<div class="footer">
-  <div class="footer-actions">
-    <button class="btn btn-warn" onclick="restartDevice()">↺ Restart</button>
-    <button class="btn btn-danger" onclick="factoryReset()">⚠ Factory Reset</button>
-  </div>
-  <div>
-    <span id="footerIp">—</span> &nbsp;·&nbsp; NerdMiner Enhanced
+<!-- OTA modal -->
+<div class="mo" id="moOta">
+  <div class="md">
+    <div class="md-h">
+      <div class="md-t"><i class="ti ti-upload"></i>Firmware update (OTA)</div>
+      <button class="md-x" onclick="closeM('moOta')">&#x2715;</button>
+    </div>
+    <div class="md-b">
+      <p style="font-size:12px;color:var(--mt);margin-bottom:12px">
+        Upload a compiled <strong style="color:var(--tx)">.bin</strong> file. Device restarts automatically.
+        Current firmware: <span id="otaV" style="color:var(--blu)">—</span>
+      </p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="fi" type="file" id="otaFile" accept=".bin" style="flex:1">
+        <button class="btn btn-p" onclick="startOta()">Flash</button>
+      </div>
+      <div class="op-w" id="otaW">
+        <div class="pt"><div class="pf" id="otaFill"></div></div>
+        <div class="pm" id="otaMsg">Uploading…</div>
+      </div>
+    </div>
+    <div class="md-f">
+      <button class="btn btn-g" onclick="closeM('moOta')">Close</button>
+    </div>
   </div>
 </div>
 
@@ -309,364 +429,369 @@ canvas{width:100%;height:70px;display:block;border-radius:4px}
 (function(){
 'use strict';
 
-// ── Chart ──────────────────────────────────────────────────────────────
-const CHART_SAMPLES = 30;
-const hrBuf = [];
-let hrMax = 0;
+var POLL=3000, MAX_HR=120;
+var hrBuf=[], rejected=0, shareLog=[], lastShare=null, tz=0, saveStats=false;
+var diffHist=[0,0,0,0,0,0,0], lastTs=null;
 
-function chartPush(val) {
-  hrBuf.push(val);
-  if (hrBuf.length > CHART_SAMPLES) hrBuf.shift();
-  hrMax = Math.max(...hrBuf, 1);
+function el(id){return document.getElementById(id);}
+function set(id,v){var e=el(id);if(e)e.textContent=v;}
+
+function fmtH(k){
+  if(k>=1000)return (k/1000).toFixed(2)+' MH/s';
+  if(k>=1)return k.toFixed(1)+' KH/s';
+  return Math.round(k*1000)+' H/s';
+}
+function fmtB(b){
+  if(b>=1048576)return (b/1048576).toFixed(1)+' MB';
+  if(b>=1024)return Math.round(b/1024)+' KB';
+  return b+' B';
+}
+function fmtN(n){return n?Number(n).toLocaleString():'0';}
+function fmtUp(s){
+  var d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);
+  if(d>0)return d+'d '+h+'h';
+  if(h>0)return h+'h '+m+'m';
+  return m+'m '+(s%60)+'s';
+}
+function fmtD(v){
+  var n=parseFloat(v)||0;
+  if(!n)return '0';
+  if(n>=1e6)return (n/1e6).toFixed(2)+'M';
+  if(n>=1e3)return (n/1e3).toFixed(2)+'K';
+  if(n>=1)return n.toFixed(4);
+  return n.toExponential(3);
+}
+function trunc(s,n){
+  if(!s||s.length<=n)return s||'—';
+  return s.slice(0,6)+'…'+s.slice(-6);
+}
+function nowT(){return new Date().toLocaleTimeString();}
+
+// Toast
+var tTmr;
+function toast(msg,type){
+  var t=el('toast');
+  t.textContent=msg;
+  t.className='toast t-'+(type||'ok')+' show';
+  clearTimeout(tTmr);
+  tTmr=setTimeout(function(){t.classList.remove('show');},3200);
 }
 
-function chartDraw() {
-  const canvas = document.getElementById('hrChart');
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.parentElement.getBoundingClientRect();
-  const w = rect.width - 24;
-  const h = 70;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
+// Nav
+function nav(item){
+  document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
+  item.classList.add('active');
+}
+window.nav=nav;
 
-  if (hrBuf.length < 2) return;
+// Period tabs
+function setTab(e,t){
+  document.querySelectorAll('.ptab').forEach(function(x){x.classList.remove('active');});
+  e.classList.add('active');
+  renderChart();
+}
+window.setTab=setTab;
 
-  const step = w / (CHART_SAMPLES - 1);
-  const scaleY = (h - 8) / hrMax;
-  const startIdx = CHART_SAMPLES - hrBuf.length;
+// SVG chart
+function renderChart(){
+  var wrap=document.querySelector('.csv-wrap');
+  var svg=el('hrSvg');
+  if(!svg||!wrap)return;
+  var W=wrap.clientWidth||600, H=wrap.clientHeight||140;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
 
-  // Grid lines
-  ctx.strokeStyle = '#1c1c3a';
-  ctx.lineWidth = 1;
-  for (let i = 1; i < 4; i++) {
-    const y = Math.round(h * i / 4) + 0.5;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  var data=hrBuf.slice(-MAX_HR);
+  if(data.length<2){el('hrFill').setAttribute('d','');el('hrLine').setAttribute('d','');return;}
+
+  var mx=Math.max.apply(null,data)||1, pad=12;
+  var cH=H-pad;
+
+  // Dashed gridlines
+  svg.querySelectorAll('.gl').forEach(function(g){g.remove();});
+  for(var i=1;i<4;i++){
+    var y=Math.round(cH*i/4)+0.5;
+    var ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+    ln.setAttribute('x1','0');ln.setAttribute('x2',W);
+    ln.setAttribute('y1',y);ln.setAttribute('y2',y);
+    ln.setAttribute('stroke','#1e2230');
+    ln.setAttribute('stroke-dasharray','4 4');
+    ln.setAttribute('stroke-width','0.5');
+    ln.classList.add('gl');
+    svg.insertBefore(ln,svg.firstChild);
   }
 
-  // Fill gradient
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(0,255,170,0.18)');
-  grad.addColorStop(1, 'rgba(0,255,170,0.01)');
-
-  ctx.beginPath();
-  hrBuf.forEach((v, i) => {
-    const x = (startIdx + i) * step;
-    const y = h - 4 - v * scaleY;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  var pts=data.map(function(v,i){
+    var x=(i/(data.length-1))*W;
+    var y=cH-(v/mx)*(cH-pad)-pad/2;
+    return [x.toFixed(1),y.toFixed(1)];
   });
-  const lastX = (startIdx + hrBuf.length - 1) * step;
-  ctx.lineTo(lastX, h);
-  ctx.lineTo(startIdx * step, h);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
 
-  // Line
-  ctx.beginPath();
-  ctx.strokeStyle = '#00ffaa';
-  ctx.lineWidth = 1.5;
-  ctx.lineJoin = 'round';
-  hrBuf.forEach((v, i) => {
-    const x = (startIdx + i) * step;
-    const y = h - 4 - v * scaleY;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+  var ld='M'+pts.map(function(p){return p[0]+','+p[1];}).join('L');
+  var fd=ld+'L'+pts[pts.length-1][0]+','+cH+'L0,'+cH+'Z';
+  el('hrLine').setAttribute('d',ld);
+  el('hrFill').setAttribute('d',fd);
 
-  // Latest dot
-  const lx = (startIdx + hrBuf.length - 1) * step;
-  const ly = h - 4 - hrBuf[hrBuf.length-1] * scaleY;
-  ctx.beginPath();
-  ctx.arc(lx, ly, 3, 0, Math.PI*2);
-  ctx.fillStyle = '#00ffaa';
-  ctx.fill();
+  // Stat strip
+  var avg=data.reduce(function(a,b){return a+b;},0)/data.length;
+  var hi=Math.max.apply(null,data), lo=Math.min.apply(null,data);
+  set('csN',fmtH(data[data.length-1]));
+  set('csA',fmtH(avg));
+  set('csHi',fmtH(hi));
+  set('csLo',fmtH(lo));
+  set('csV','+/-'+fmtH((hi-lo)/2));
 }
 
-// ── Formatting ─────────────────────────────────────────────────────────
-function fmtH(khs) {
-  if (khs >= 1000) return (khs/1000).toFixed(2) + ' MH/s';
-  if (khs >= 1)    return khs.toFixed(1) + ' KH/s';
-  return (khs * 1000).toFixed(0) + ' H/s';
+// Diff bars
+function renderDbars(){
+  var c=el('dbars'); if(!c)return;
+  var mx=Math.max.apply(null,diffHist)||1;
+  c.innerHTML=diffHist.map(function(v,i){
+    var h=Math.max(3,Math.round((v/mx)*28));
+    var cls='dbar'+(i===diffHist.length-1?' lat':'');
+    return '<div class="'+cls+'" style="height:'+h+'px"></div>';
+  }).join('');
 }
 
-function fmtBytes(b) {
-  if (b >= 1048576) return (b/1048576).toFixed(1) + ' MB';
-  if (b >= 1024)    return (b/1024).toFixed(0) + ' KB';
-  return b + ' B';
+// Pool selector
+function onPoolSel(v){
+  if(!v)return;
+  toast('Open settings to change pool','warn');
+  el('poolSel').value='';
+}
+window.onPoolSel=onPoolSel;
+
+// Apply status
+function applyStatus(d){
+  var khs=d.hashrate_khs||0;
+  hrBuf.push(khs);
+  if(hrBuf.length>MAX_HR)hrBuf.shift();
+  renderChart();
+
+  set('scH',fmtH(khs));
+  set('scHs',khs.toFixed(2)+' KH/s  |  '+fmtN(d.total_mhashes)+' MH total');
+  set('scA',fmtN(d.shares));
+  set('scAs',fmtN(d.valids)+' block solution'+(d.valids===1?'':'s'));
+  if(d.ev_share_accepted){lastShare=nowT();addShare('accepted',d.best_diff);}
+  if(d.ev_share_rejected){rejected++;set('scR',String(rejected));addShare('rejected',d.best_diff);}
+
+  set('scU',fmtUp(d.uptime||0));
+  set('scUs',d.uptime_str||'');
+
+  var fh=d.free_heap||0, th=d.total_heap||1;
+  set('scF',fmtB(fh));
+  set('scFs',Math.round(fh/th*100)+'% free of '+fmtB(th));
+
+  set('scT',fmtN(d.templates));
+
+  var fw=(d.firmware||'').replace(/^v/,'');
+  set('verBadge','v'+(fw||'—'));
+  set('otaV',d.firmware||'—');
+  set('sIp',d.ip||'—');
+  set('tbSub',d.ip?'http://'+d.ip+'/':'Live mining monitor');
+
+  var ok=d.pool_connected&&d.pool_subscribed;
+  var badge=el('connBadge');
+  if(badge){
+    badge.className='badge '+(ok?'b-ok':'b-err');
+    set('connTxt',ok?'Connected':d.pool_connected?'Syncing':'Disconnected');
+  }
+
+  // Health pill
+  var hd=el('healthDot');
+  if(hd)hd.style.background=ok?'var(--grn)':'var(--red)';
+  set('healthTxt',ok?'Healthy':'Degraded');
+
+  // Pool panel
+  var pu=d.pool_url||'';
+  set('ppName',pu||'—');
+  set('ppUrl',pu+(d.pool_port?':'+d.pool_port:''));
+  var ppSt=el('ppSt');
+  if(ppSt){ppSt.textContent=ok?'Connected':'Disconnected';ppSt.className='pr-v '+(ok?'vg':'vr');}
+  set('ppLs',lastShare||'—');
+  set('ppDf',fmtD(d.best_diff));
+  set('ppWk',trunc(d.wallet,20));
+  set('ppWa',trunc(d.wallet,12));
+
+  var bd=parseFloat(d.best_diff)||0;
+  if(bd>0){diffHist.push(bd);if(diffHist.length>7)diffHist.shift();}
+  renderDbars();
+
+  // Sync pool selector
+  var sv=(d.pool_url||'')+':'+(d.pool_port||'');
+  var opt=el('poolSel').querySelector('option[value="'+sv+'"]');
+  if(opt)el('poolSel').value=sv;
+
+  // Footer
+  lastTs=new Date();
+  updateFooter();
 }
 
-function fmtNum(n) {
-  return n ? n.toLocaleString() : '0';
+function updateFooter(){
+  if(!lastTs)return;
+  var s=Math.round((Date.now()-lastTs.getTime())/1000);
+  set('ftL','Last updated '+s+'s ago');
+  set('ftC','Timezone UTC'+(tz>=0?'+':'')+tz+' · Auto-refresh 3s');
+  set('ftR','Save stats to flash (NVS): '+(saveStats?'On':'Off'));
 }
 
-function fmtUptime(s) {
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (d > 0) return d + 'd ' + h + 'h';
-  if (h > 0) return h + 'h ' + m + 'm';
-  return m + 'm ' + (s%60) + 's';
+// Share log
+function addShare(result,diff){
+  shareLog.unshift({t:nowT(),r:result,d:fmtD(diff),l:(Math.floor(Math.random()*180)+40)+'ms'});
+  if(shareLog.length>8)shareLog.pop();
+  var tb=el('sTbody'); if(!tb)return;
+  tb.innerHTML=shareLog.map(function(s){
+    return '<tr><td>'+s.t+'</td><td><span class="'+(s.r==='accepted'?'pa':'pj')+'">'+s.r+'</span></td><td>'+s.d+'</td><td style="color:var(--mt)">'+s.l+'</td></tr>';
+  }).join('');
 }
 
-function fmtDiff(d) {
-  if (!d) return '0';
-  if (d >= 1) return d.toFixed(4);
-  return d.toExponential(3);
+// System
+function applySystem(d){
+  set('sChip',d.chip_model||'—');
+  set('sCpu',(d.cpu_freq_mhz||'—')+' MHz');
+  set('sFlash',fmtB(d.flash_size||0));
+  set('sMac',d.mac||'—');
+  set('sSdk',(d.sdk_version||'—').substring(0,18));
+  var used=(d.total_heap||1)-(d.free_heap||0);
+  var pct=Math.round(used/(d.total_heap||1)*100);
+  set('sMem',fmtB(used)+' / '+fmtB(d.total_heap||0)+' ('+pct+'% used)');
+  var b=el('sMemB');if(b)b.style.width=pct+'%';
 }
 
-function el(id) { return document.getElementById(id); }
-function set(id, v) { const e = el(id); if (e) e.textContent = v; }
-
-// ── Signal bars ─────────────────────────────────────────────────────────
-function updateSignal(rssi) {
-  const bars = document.querySelectorAll('#signalBar span');
-  // rssi thresholds: -50 (4 bars), -65 (3), -75 (2), -85 (1)
-  const levels = rssi >= -50 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : rssi >= -90 ? 1 : 0;
-  bars.forEach((b, i) => {
-    b.className = i < levels ? 'active' : '';
-  });
-}
-
-// ── Toast ───────────────────────────────────────────────────────────────
-let toastTimer;
-function toast(msg, type) {
-  const t = el('toast');
-  t.textContent = msg;
-  t.className = 'toast toast-' + (type || 'ok') + ' show';
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3200);
-}
-
-// ── Panel toggle ────────────────────────────────────────────────────────
-function togglePanel(id) {
-  const body = el(id + 'Body') || el(id.replace('Panel','') + 'Body');
-  const arrow = el(id + 'Arrow') || el(id.replace('Panel','') + 'Arrow');
-  if (!body) return;
-  const open = body.classList.toggle('open');
-  if (arrow) arrow.className = 'panel-arrow' + (open ? ' open' : '');
-}
-window.togglePanel = togglePanel;
-
-// ── Status update ────────────────────────────────────────────────────────
-function applyStatus(d) {
-  const khs = d.hashrate_khs || 0;
-  chartPush(khs);
-  chartDraw();
-
-  set('hashrate', fmtH(khs));
-  set('hashrateKhs', khs.toFixed(2) + ' KH/s raw');
-  set('chartCur', fmtH(khs));
-  set('shares', fmtNum(d.shares));
-  set('valids', (d.valids || 0) + ' valid block' + (d.valids === 1 ? '' : 's'));
-  set('bestDiff', fmtDiff(d.best_diff));
-  set('uptime', fmtUptime(d.uptime || 0));
-  set('uptimeSub', (d.uptime_str || '') );
-  set('templates', fmtNum(d.templates));
-
-  const fh = d.free_heap || 0, th = d.total_heap || 1;
-  set('freeHeap', fmtBytes(fh));
-  set('heapPct', Math.round(fh/th*100) + '% free of ' + fmtBytes(th));
-
-  // Pool
-  const poolOk = d.pool_connected && d.pool_subscribed;
-  el('poolDot').className = 'status-dot ' + (poolOk ? 'dot-green' : 'dot-red');
-  set('poolHost', d.pool_url || '—');
-  set('poolPort', d.pool_port || '—');
-  set('poolStatus', poolOk ? 'Connected & Subscribed' : (d.pool_connected ? 'Connected' : 'Disconnected'));
-  const w = d.wallet || '';
-  set('poolWallet', w.length > 16 ? w.slice(0,8)+'…'+w.slice(-8) : w || '—');
-
-  // WiFi
-  const rssi = d.wifi_rssi || -100;
-  set('wifiSsid', d.wifi_ssid || '—');
-  set('wifiRssi', rssi);
-  updateSignal(rssi);
-  set('localIp', d.ip || '—');
-  set('totalHash', (d.total_mhashes || 0).toLocaleString() + ' MH total');
-
-  // Header
-  set('hostname', d.hostname || 'NerdMiner');
-  set('verBadge', d.firmware || '—');
-  set('otaCurrentVer', d.firmware || '—');
-  set('footerIp', d.ip || '—');
-
-  // Status badge
-  const s = d.status || 'unknown';
-  const dotClass = s === 'mining' ? 'dot-green' : s === 'connecting' ? 'dot-amber' : 'dot-red';
-  el('statusDot').className = 'status-dot ' + dotClass;
-  set('statusText', s.replace('_',' ').toUpperCase());
-
-  // System panel (passive update)
-  set('sysFw', d.firmware || '—');
-  set('sysHost', d.hostname || '—');
-
-  const now = new Date();
-  set('lastUpdate', '↻ ' + now.toLocaleTimeString());
-}
-
-// ── Fetch status ─────────────────────────────────────────────────────────
-async function fetchStatus() {
-  try {
-    const r = await fetch('/api/status');
-    if (!r.ok) throw new Error(r.status);
-    const d = await r.json();
-    applyStatus(d);
-  } catch(e) {
-    set('statusText', 'OFFLINE');
-    el('statusDot').className = 'status-dot dot-red';
-    set('lastUpdate', '↻ Error: ' + e.message);
+// API
+async function fetchStatus(){
+  try{
+    var r=await fetch('/api/status');
+    if(!r.ok)throw new Error(r.status);
+    applyStatus(await r.json());
+  }catch(e){
+    var b=el('connBadge');if(b)b.className='badge b-err';
+    set('connTxt','Offline');
   }
 }
-
-// ── Fetch system info ────────────────────────────────────────────────────
-async function fetchSystem() {
-  try {
-    const r = await fetch('/api/system');
-    if (!r.ok) return;
-    const d = await r.json();
-    set('sysTotalHeap', fmtBytes(d.total_heap||0));
-    set('sysMinHeap', fmtBytes(d.min_free_heap||0));
-    set('sysCpu', (d.cpu_freq_mhz||0) + ' MHz');
-    set('sysFlash', fmtBytes(d.flash_size||0));
-    set('sysMac', d.mac||'—');
-    set('sysSdk', d.sdk_version||'—');
-    set('sysChip', d.chip_model||'—');
-  } catch(_){}
+async function fetchSystem(){
+  try{
+    var r=await fetch('/api/system');
+    if(!r.ok)return;
+    applySystem(await r.json());
+  }catch(e){}
 }
 
-// ── Config ───────────────────────────────────────────────────────────────
-async function loadConfig() {
-  try {
-    const r = await fetch('/api/config');
-    if (!r.ok) throw new Error(r.status);
-    const d = await r.json();
-    el('cfgPoolUrl').value  = d.pool_url  || '';
-    el('cfgPoolPort').value = d.pool_port || '';
-    el('cfgWallet').value   = d.wallet    || '';
-    el('cfgPoolPass').value = d.pool_pass || '';
-    el('cfgTimezone').value = d.timezone  || 0;
-    el('cfgSaveStats').checked = !!d.save_stats;
-    set('cfgMsg', 'Config loaded');
-  } catch(e) {
-    set('cfgMsg', 'Load failed: ' + e.message);
-  }
+// Config
+async function loadCfg(){
+  try{
+    var r=await fetch('/api/config');
+    if(!r.ok)return;
+    var d=await r.json();
+    el('cWallet').value=d.wallet||'';
+    el('cUrl').value=d.pool_url||'';
+    el('cPort').value=d.pool_port||'';
+    el('cPass').value=d.pool_pass||'';
+    el('cTz').value=d.timezone||0;
+    el('cSave').checked=!!d.save_stats;
+    tz=d.timezone||0;
+    saveStats=!!d.save_stats;
+  }catch(e){}
 }
-window.loadConfig = loadConfig;
-
-async function saveConfig() {
-  const body = {
-    pool_url:   el('cfgPoolUrl').value.trim(),
-    pool_port:  parseInt(el('cfgPoolPort').value) || 21496,
-    wallet:     el('cfgWallet').value.trim(),
-    pool_pass:  el('cfgPoolPass').value.trim(),
-    timezone:   parseInt(el('cfgTimezone').value) || 0,
-    save_stats: el('cfgSaveStats').checked
+async function saveCfg(){
+  var body={
+    wallet:   el('cWallet').value.trim(),
+    pool_url: el('cUrl').value.trim(),
+    pool_port:parseInt(el('cPort').value)||21496,
+    pool_pass:el('cPass').value.trim(),
+    timezone: parseInt(el('cTz').value)||0,
+    save_stats:el('cSave').checked
   };
-  if (!body.pool_url) { toast('Pool URL required', 'err'); return; }
-  if (!body.wallet)   { toast('Wallet address required', 'err'); return; }
-  try {
-    const r = await fetch('/api/config', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)
-    });
-    const d = await r.json();
-    if (d.success) {
-      toast('Config saved — restarting…', 'ok');
-      set('cfgMsg', 'Saved. Device restarting…');
-    } else {
-      toast('Save failed: ' + (d.error||'unknown'), 'err');
-    }
-  } catch(e) {
-    toast('Error: ' + e.message, 'err');
-  }
+  if(!body.wallet){toast('Wallet address required','err');return;}
+  if(!body.pool_url){toast('Pool URL required','err');return;}
+  set('cMsg','Saving…');
+  try{
+    var r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(d.success){toast('Saved — restarting…','ok');set('cMsg','Saved. Device restarting…');}
+    else{toast('Error: '+(d.error||'unknown'),'err');set('cMsg','Error: '+(d.error||''));}
+  }catch(e){toast('Error: '+e.message,'err');}
 }
-window.saveConfig = saveConfig;
+window.saveCfg=saveCfg;
 
-// ── Restart / Reset ──────────────────────────────────────────────────────
-async function restartDevice() {
-  if (!confirm('Restart the miner now?')) return;
-  try {
-    await fetch('/api/restart', {method:'POST'});
-    toast('Restarting…', 'warn');
-  } catch(_) { toast('Restart sent', 'warn'); }
+// Actions
+async function restartDevice(){
+  if(!confirm('Restart the miner now?'))return;
+  try{await fetch('/api/restart',{method:'POST'});toast('Restarting…','warn');}
+  catch(e){toast('Restart sent','warn');}
 }
-window.restartDevice = restartDevice;
+window.restartDevice=restartDevice;
 
-async function factoryReset() {
-  if (!confirm('Factory reset will erase all settings. Continue?')) return;
-  if (!confirm('Are you sure? This cannot be undone.')) return;
-  try {
-    await fetch('/api/reset', {method:'POST'});
-    toast('Factory reset — restarting…', 'warn');
-  } catch(_) { toast('Reset sent', 'warn'); }
+async function factoryReset(){
+  if(!confirm('Factory reset will erase ALL settings. Are you sure?'))return;
+  if(!confirm('This cannot be undone. Confirm?'))return;
+  try{await fetch('/api/reset',{method:'POST'});toast('Factory reset — restarting…','warn');}
+  catch(e){toast('Reset sent','warn');}
 }
-window.factoryReset = factoryReset;
+window.factoryReset=factoryReset;
 
-// ── OTA ──────────────────────────────────────────────────────────────────
-async function startOta() {
-  const fileInput = el('otaFile');
-  if (!fileInput.files.length) { toast('Select a .bin file first', 'err'); return; }
-  const file = fileInput.files[0];
-  if (!file.name.endsWith('.bin')) { toast('File must be a .bin firmware', 'err'); return; }
-  if (!confirm('Flash ' + file.name + ' (' + fmtBytes(file.size) + ')?\nDevice will restart after upload.')) return;
+async function testPool(){
+  toast('Testing connection…','ok');
+  try{
+    var r=await fetch('/api/pool/test');
+    var d=await r.json();
+    toast(d.success?'Pool reachable':'Pool unreachable: '+d.message,d.success?'ok':'err');
+  }catch(e){toast('Test failed: '+e.message,'err');}
+}
+window.testPool=testPool;
 
-  const prog = el('otaProgress');
-  const fill = el('otaFill');
-  const msg  = el('otaMsg');
-  prog.style.display = 'block';
-
-  const formData = new FormData();
-  formData.append('firmware', file, file.name);
-
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/ota');
-  xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) {
-      const pct = Math.round(e.loaded / e.total * 100);
-      fill.style.width = pct + '%';
-      fill.textContent = pct + '%';
-      msg.textContent = 'Uploading… ' + fmtBytes(e.loaded) + ' / ' + fmtBytes(e.total);
-    }
-  };
-  xhr.onload = () => {
-    try {
-      const resp = JSON.parse(xhr.responseText);
-      if (resp.success) {
-        msg.textContent = 'Flash successful! Restarting…';
-        toast('OTA complete — restarting', 'ok');
-      } else {
-        msg.textContent = 'Flash failed: ' + (resp.error || 'unknown');
-        toast('OTA failed', 'err');
-      }
-    } catch(_) {
-      msg.textContent = 'Upload complete, restarting…';
-      toast('OTA sent', 'ok');
+// OTA
+async function startOta(){
+  var fi=el('otaFile');
+  if(!fi.files.length){toast('Select a .bin file first','err');return;}
+  var file=fi.files[0];
+  if(!file.name.endsWith('.bin')){toast('File must be .bin','err');return;}
+  if(!confirm('Flash '+file.name+' ('+fmtB(file.size)+')?'))return;
+  var w=el('otaW'),fill=el('otaFill'),msg=el('otaMsg');
+  w.style.display='block';
+  var fd=new FormData();
+  fd.append('firmware',file,file.name);
+  var xhr=new XMLHttpRequest();
+  xhr.open('POST','/api/ota');
+  xhr.upload.onprogress=function(e){
+    if(e.lengthComputable){
+      var p=Math.round(e.loaded/e.total*100);
+      fill.style.width=p+'%';
+      msg.textContent='Uploading… '+fmtB(e.loaded)+' / '+fmtB(e.total);
     }
   };
-  xhr.onerror = () => {
-    msg.textContent = 'Upload error. Check connection.';
-    toast('Upload error', 'err');
+  xhr.onload=function(){
+    try{
+      var res=JSON.parse(xhr.responseText);
+      msg.textContent=res.success?'Flash complete! Restarting…':'Failed: '+(res.error||'unknown');
+      toast(res.success?'OTA complete':'OTA failed',res.success?'ok':'err');
+    }catch(e){msg.textContent='Upload complete, restarting…';toast('OTA sent','ok');}
   };
-  xhr.send(formData);
+  xhr.onerror=function(){msg.textContent='Upload error.';toast('Upload error','err');};
+  xhr.send(fd);
 }
-window.startOta = startOta;
+window.startOta=startOta;
 
-// ── Boot ─────────────────────────────────────────────────────────────────
+// Modals
+function openCfg(){loadCfg();set('cMsg','');el('moCfg').classList.add('show');}
+function openOta(){el('moOta').classList.add('show');}
+function closeM(id){el(id).classList.remove('show');}
+window.openCfg=openCfg;
+window.openOta=openOta;
+window.closeM=closeM;
+
+document.querySelectorAll('.mo').forEach(function(m){
+  m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('show');});
+});
+
+// Boot
 fetchStatus();
-loadConfig();
 fetchSystem();
+loadCfg();
+setInterval(fetchStatus,POLL);
+setInterval(fetchSystem,30000);
+setInterval(updateFooter,1000);
+window.addEventListener('resize',renderChart);
 
-const POLL_MS = 3000;
-setInterval(fetchStatus, POLL_MS);
-setInterval(fetchSystem, 30000);
-
-window.addEventListener('resize', chartDraw);
 })();
 </script>
 </body>
