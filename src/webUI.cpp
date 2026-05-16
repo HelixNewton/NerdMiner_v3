@@ -390,7 +390,7 @@ static void handleNotFound() {
 // ── WebUI FreeRTOS task ────────────────────────────────────────────────────
 static void webui_task(void* pvParameters) {
     (void)pvParameters;
-    Serial.printf("[WEBUI] Starting HTTP server on port %d\n", WEBUI_PORT);
+    Serial.printf("[WEBUI] Task started — heap: %u bytes free\n", esp_get_free_heap_size());
 
     // Collect headers needed for auth / content-type
     const char* hdrs[] = { "X-API-Token", "Authorization", "Content-Type" };
@@ -411,7 +411,9 @@ static void webui_task(void* pvParameters) {
     httpServer.onNotFound(handleNotFound);
 
     httpServer.begin(WEBUI_PORT);
-    Serial.printf("[WEBUI] Ready — http://%s/\n", WiFi.localIP().toString().c_str());
+    Serial.printf("[WEBUI] Ready — http://%s:%d/ (stack HWM: %u)\n",
+        WiFi.localIP().toString().c_str(), WEBUI_PORT,
+        uxTaskGetStackHighWaterMark(NULL));
 
     while (true) {
         httpServer.handleClient();
@@ -422,17 +424,17 @@ static void webui_task(void* pvParameters) {
 // ── Public API ─────────────────────────────────────────────────────────────
 
 void webui_init() {
-    // Priority 2: above SW miner tasks (1) but well below Stratum (4) and Monitor (5).
-    // Pinned to core 1 so it shares the WiFi/networking core without impacting
-    // miner HW/SW tasks which float to core 0 under FreeRTOS scheduling.
-    xTaskCreatePinnedToCore(
+    BaseType_t res = xTaskCreatePinnedToCore(
         webui_task, "WebUI",
-        8192,    // stack: enough for JSON + HTTP header parsing
+        16384,   // 16KB: generous stack for HTTP parsing + JSON + large PROGMEM sends
         nullptr,
-        2,       // priority
+        3,       // priority 3: above miners (1) but below Stratum (4) and Monitor (5)
         nullptr,
         1        // core 1 (WiFi core)
     );
+    if (res != pdPASS) {
+        Serial.printf("[WEBUI] ERROR: xTaskCreate failed (free heap: %u)\n", esp_get_free_heap_size());
+    }
 }
 
 void webui_notify_share_accepted()  { ev_share_accepted  = true; }
