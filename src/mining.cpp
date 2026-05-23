@@ -294,6 +294,7 @@ void runStratumWorker(void *name) {
       tx_suggest_difficulty(client, currentPoolDifficulty);
 
       isMinerSuscribed=true;
+      mMonitor.NerdStatus = NM_hashing;
       uint32_t time_now = millis();
       mLastTXtoPool = time_now;
       last_job_time = time_now;
