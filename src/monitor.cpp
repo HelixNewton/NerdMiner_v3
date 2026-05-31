@@ -405,33 +405,48 @@ coin_data getCoinData(unsigned long mElapsed)
   return data;
 }
 
+// ── Pool registry ──────────────────────────────────────────────────────────
+// All listed pools currently run public-pool software and share its stats API
+// schema, so getPoolData()'s parser handles them all. Unverified API URLs
+// degrade gracefully — getPoolData() shows "P"/"E" if the endpoint 404s.
+// To add a pool: append a row here (and, for a different JSON schema, a new
+// PoolApiFormat handled in getPoolData()).
+static const PoolDefinition s_pool_registry[] = {
+    { "public-pool.io",     "public-pool.io",          21496, "https://public-pool.io:40557/api/client/",    POOL_API_PUBLICPOOL },
+    { "nerdminers.org",     "pool.nerdminers.org",      3333, "https://pool.nerdminers.org/users/",          POOL_API_PUBLICPOOL },
+    { "sethforprivacy.com", "pool.sethforprivacy.com",  3333, "https://pool.sethforprivacy.com/api/client/", POOL_API_PUBLICPOOL },
+    { "solomining.de",      "pool.solomining.de",       3333, "https://pool.solomining.de/api/client/",      POOL_API_PUBLICPOOL },
+    { "pyblock.xyz",        "pool.pyblock.xyz",         3333, "https://pool.pyblock.xyz/api/client/",        POOL_API_PUBLICPOOL },
+};
+
+const PoolDefinition* getPoolRegistry(size_t* count) {
+    if (count) *count = sizeof(s_pool_registry) / sizeof(s_pool_registry[0]);
+    return s_pool_registry;
+}
+
+const PoolDefinition* findPoolDefinition(const String& host, int port) {
+    const PoolDefinition* hostMatch = nullptr;
+    for (size_t i = 0; i < sizeof(s_pool_registry) / sizeof(s_pool_registry[0]); ++i) {
+        if (host.equalsIgnoreCase(s_pool_registry[i].host)) {
+            if ((int)s_pool_registry[i].port == port) return &s_pool_registry[i]; // exact host+port
+            if (!hostMatch) hostMatch = &s_pool_registry[i];                       // host-only fallback
+        }
+    }
+    return hostMatch;
+}
+
 String getPoolAPIUrl(void) {
-    poolAPIUrl = String(getPublicPool);
-    if (Settings.PoolAddress == "public-pool.io") {
-        poolAPIUrl = "https://public-pool.io:40557/api/client/";
-    } 
-    else {
-        if (Settings.PoolAddress == "pool.nerdminers.org") {
-            poolAPIUrl = "https://pool.nerdminers.org/users/";
-        }
-        else {
-            switch (Settings.PoolPort) {
-                case 3333:
-                    if (Settings.PoolAddress == "pool.sethforprivacy.com")
-                        poolAPIUrl = "https://pool.sethforprivacy.com/api/client/";
-                    if (Settings.PoolAddress == "pool.solomining.de")
-                        poolAPIUrl = "https://pool.solomining.de/api/client/";
-                    // Add more cases for other addresses with port 3333 if needed
-                    break;
-                case 2018:
-                    // Local instance of public-pool.io on Umbrel or Start9
-                    poolAPIUrl = "http://" + Settings.PoolAddress + ":2019/api/client/";
-                    break;
-                default:
-                    poolAPIUrl = String(getPublicPool);
-                    break;
-            }
-        }
+    // Local public-pool instance (Umbrel / Start9) exposes its API on port 2019
+    if (Settings.PoolPort == 2018) {
+        poolAPIUrl = "http://" + Settings.PoolAddress + ":2019/api/client/";
+        return poolAPIUrl;
+    }
+
+    const PoolDefinition* def = findPoolDefinition(Settings.PoolAddress, Settings.PoolPort);
+    if (def && def->apiFormat != POOL_API_NONE && def->apiUrl[0] != '\0') {
+        poolAPIUrl = String(def->apiUrl);
+    } else {
+        poolAPIUrl = String(getPublicPool); // sensible default for unknown pools
     }
     return poolAPIUrl;
 }

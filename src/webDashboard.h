@@ -162,6 +162,13 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
 .cv-shares .bp-system,.cv-shares .bp-actions{display:none}
 .cv-alerts .sr,.cv-alerts .mr,.cv-alerts .br{display:none}
 .cv-logs .sr,.cv-logs .mr,.cv-logs .br{display:none}
+.cv-fleet .sr,.cv-fleet .mr,.cv-fleet .br{display:none}
+.fl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.fl-link{color:var(--blu);text-decoration:none}
+.fl-link:hover{text-decoration:underline}
+.lnk-x{background:none;border:none;color:var(--mt);cursor:pointer;font-size:14px;padding:0 3px;line-height:1}
+.lnk-x:hover{color:var(--red)}
+@media(max-width:680px){.fl-grid{grid-template-columns:1fr}}
 @media(max-width:1200px){.sr{grid-template-columns:repeat(3,1fr)}.mr{grid-template-columns:1fr}}
 @media(max-width:900px){.br{grid-template-columns:1fr 1fr}}
 @media(max-width:680px){.sb{display:none}.sr{grid-template-columns:repeat(2,1fr)}.br{grid-template-columns:1fr}}
@@ -174,6 +181,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
   <nav class="sb-nav">
     <div class="nav-grp">Mining</div>
     <div class="nav-item active" data-v="overview" onclick="nav(this)"><i class="ti ti-layout-dashboard"></i>Overview</div>
+    <div class="nav-item" data-v="fleet" onclick="nav(this)"><i class="ti ti-network"></i>Fleet</div>
     <div class="nav-item" data-v="workers" onclick="nav(this)"><i class="ti ti-cpu"></i>Workers</div>
     <div class="nav-item" data-v="pools" onclick="nav(this)"><i class="ti ti-server"></i>Pools</div>
     <div class="nav-grp">Analytics</div>
@@ -197,11 +205,8 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
     <div class="tb-sp"></div>
     <span class="badge b-ok" id="connBadge"><span class="bdot"></span><span id="connTxt">Connecting</span></span>
     <span class="badge b-ver" id="verBadge">v&#x2014;</span>
-    <select class="pool-sel" id="poolSel" title="Pool" onchange="onPoolSel(this.value)">
-      <option value="">&#x2014; Pool &#x2014;</option>
-      <option value="public-pool.io:21496">public-pool.io</option>
-      <option value="pool.nerdminers.org:3333">nerdminers.org</option>
-      <option value="pool.pyblock.xyz:3333">pyblock.xyz</option>
+    <select class="pool-sel" id="poolSel" title="Switch this miner to another pool" onchange="onPoolSel(this.value)">
+      <option value="">&#x2014; Switch pool &#x2014;</option>
     </select>
   </header>
 
@@ -296,8 +301,8 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
       <div class="bp bp-shares">
         <div class="ph"><div class="ph-t"><i class="ti ti-list-check"></i>Recent shares</div></div>
         <table class="st">
-          <thead><tr><th>Time</th><th>Result</th><th>Difficulty</th><th>Latency</th></tr></thead>
-          <tbody id="sTbody"><tr><td colspan="4" style="color:var(--mt);text-align:center;padding:14px 0">Waiting for shares&#x2026;</td></tr></tbody>
+          <thead><tr><th>Time</th><th>Result</th><th>Difficulty</th></tr></thead>
+          <tbody id="sTbody"><tr><td colspan="3" style="color:var(--mt);text-align:center;padding:14px 0">Waiting for shares&#x2026;</td></tr></tbody>
         </table>
       </div>
 
@@ -340,6 +345,28 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <span id="logCount" class="badge b-ver" style="font-size:10px">0 entries</span>
       </div>
       <div id="logList"><div class="empty-state">No log entries yet</div></div>
+    </div>
+
+    <div id="vFleet" class="panel" style="display:none">
+      <div class="ph">
+        <div class="ph-t"><i class="ti ti-network"></i>Fleet &#x2014; all miners</div>
+        <span id="fleetCount" class="badge b-ver" style="font-size:10px">0 miners</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <input class="fi" id="fleetInput" type="text" placeholder="Add miner by IP or hostname (e.g. 192.168.1.50)" style="flex:1" onkeydown="if(event.key==='Enter')fleetAddInput()">
+        <button class="btn btn-p" onclick="fleetAddInput()">Add</button>
+        <button class="btn btn-g" onclick="fleetRefresh()">Refresh</button>
+      </div>
+      <div class="fl-grid">
+        <div class="sc" style="border-top-color:var(--grn)"><div class="sc-lbl" style="color:var(--grn)"><i class="ti ti-cpu"></i>Online</div><div class="sc-v" style="color:var(--grn)" id="flOnline">&#x2014;</div><div class="sc-s">miners reachable</div></div>
+        <div class="sc" style="border-top-color:var(--gold)"><div class="sc-lbl" style="color:var(--gold)"><i class="ti ti-activity"></i>Total hashrate</div><div class="sc-v" style="color:var(--gold)" id="flHash">&#x2014;</div><div class="sc-s">combined</div></div>
+        <div class="sc" style="border-top-color:var(--blu)"><div class="sc-lbl" style="color:var(--blu)"><i class="ti ti-circle-check"></i>Total accepted</div><div class="sc-v" style="color:var(--blu)" id="flShares">&#x2014;</div><div class="sc-s">shares</div></div>
+      </div>
+      <table class="st">
+        <thead><tr><th>Miner</th><th>IP</th><th>Status</th><th>Hashrate</th><th>Accepted</th><th>Best diff</th><th>Uptime</th><th></th></tr></thead>
+        <tbody id="fleetBody"><tr><td colspan="8" class="empty-state">No miners yet &#x2014; add one above. This device is added automatically.</td></tr></tbody>
+      </table>
+      <div class="dbars-lbl" style="margin-top:10px">Stats are polled directly from each miner&#x2019;s <code>/api/status</code> &#x2014; all miners must be on this same network.</div>
     </div>
 
   </div>
@@ -405,9 +432,21 @@ var POLL=3000,MAX_HR=120;
 var hrBuf=[],rejected=0,shareLog=[],lastShare=null,tz=0,saveStats=false;
 var diffHist=[0,0,0,0,0,0,0],lastTs=null;
 var alertLog=[],sysLog=[],prevConn=null;
+var currentView='overview',activePool='',lastWallet='';
+// Fleet (multi-miner) state — miner hosts persisted per browser in localStorage
+var fleet=[],fleetData={},fleetBusy=false,selfIp=null,lastStatus=null,selfAdded=false;
+// Pool list used to populate the switcher; replaced by GET /api/pools when available
+var POOLS_FALLBACK=[
+  {name:'public-pool.io',host:'public-pool.io',port:21496},
+  {name:'nerdminers.org',host:'pool.nerdminers.org',port:3333},
+  {name:'sethforprivacy.com',host:'pool.sethforprivacy.com',port:3333},
+  {name:'solomining.de',host:'pool.solomining.de',port:3333},
+  {name:'pyblock.xyz',host:'pool.pyblock.xyz',port:3333}
+];
 
 var VIEWS={
   overview:{t:'Overview',s:'Live mining monitor'},
+  fleet:{t:'Fleet',s:'All miners on your network'},
   workers:{t:'Workers',s:'Single-device miner stats'},
   pools:{t:'Pools',s:'Pool connection & status'},
   stats:{t:'Statistics',s:'Hashrate analytics'},
@@ -460,13 +499,16 @@ function nav(item){
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   item.classList.add('active');
   var v=item.dataset.v||'overview';
+  currentView=v;
   el('ct').className='ct cv-'+v;
   el('vAlerts').style.display=(v==='alerts')?'block':'none';
   el('vLogs').style.display=(v==='logs')?'block':'none';
+  el('vFleet').style.display=(v==='fleet')?'block':'none';
   var info=VIEWS[v]||VIEWS.overview;
   set('tbT',info.t);
   set('tbSub',info.s);
   renderChart();
+  if(v==='fleet')fleetRefresh();
 }
 window.nav=nav;
 
@@ -520,8 +562,103 @@ function renderDbars(){
   }).join('');
 }
 
-function onPoolSel(v){if(!v)return;toast('Open settings to change pool','warn');el('poolSel').value='';}
+async function loadPools(){
+  var pools=POOLS_FALLBACK;
+  try{var r=await fetch('/api/pools');if(r.ok){var j=await r.json();if(Array.isArray(j)&&j.length)pools=j;}}catch(e){}
+  var sel=el('poolSel');if(!sel)return;
+  sel.innerHTML='<option value="">— Switch pool —</option>'+pools.map(function(p){
+    return '<option value="'+p.host+':'+p.port+'">'+(p.name||p.host)+'</option>';
+  }).join('');
+  if(activePool)sel.value=activePool;
+}
+
+// Switch this miner to the selected pool by reusing the validated /api/config
+// POST (which persists settings and restarts the device).
+async function onPoolSel(v){
+  var sel=el('poolSel');
+  if(!v){return;}
+  var i=v.lastIndexOf(':'),host=v.slice(0,i),port=parseInt(v.slice(i+1))||3333;
+  if(!confirm('Switch this miner to '+host+':'+port+'?\n\nThe new pool is saved and the device restarts.')){
+    sel.value=activePool||'';return;
+  }
+  toast('Switching to '+host+'…','warn');
+  try{
+    var cfgR=await fetch('/api/config');var cfg=cfgR.ok?await cfgR.json():{};
+    var wallet=((cfg.wallet||lastWallet||'')+'').trim();
+    if(!wallet){toast('No wallet set — open Settings first','err');sel.value=activePool||'';return;}
+    var body={wallet:wallet,pool_url:host,pool_port:port,
+      pool_pass:cfg.pool_pass||'x',
+      timezone:(cfg.timezone!=null?cfg.timezone:tz),
+      save_stats:!!cfg.save_stats};
+    var r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(d.success){toast('Pool switched — device restarting…','ok');pushLog('Pool switched to '+host+':'+port,'ok');}
+    else{toast('Switch failed: '+(d.error||'unknown'),'err');sel.value=activePool||'';}
+  }catch(e){toast('Switch error: '+e.message,'err');sel.value=activePool||'';}
+}
 window.onPoolSel=onPoolSel;
+
+// ── Fleet (multi-miner) ─────────────────────────────────────────────────────
+function fleetLoad(){try{fleet=JSON.parse(localStorage.getItem('nm_fleet')||'[]');}catch(e){fleet=[];}if(!Array.isArray(fleet))fleet=[];}
+function fleetSave(){try{localStorage.setItem('nm_fleet',JSON.stringify(fleet));}catch(e){}}
+
+function renderFleet(){
+  var body=el('fleetBody');if(!body)return;
+  set('fleetCount',fleet.length+' miner'+(fleet.length===1?'':'s'));
+  if(!fleet.length){
+    body.innerHTML='<tr><td colspan="8" class="empty-state">No miners yet — add one above. This device is added automatically.</td></tr>';
+    set('flOnline','0');set('flHash',fmtH(0));set('flShares','0');return;
+  }
+  var online=0,totHash=0,totShares=0;
+  body.innerHTML=fleet.map(function(host){
+    var res=fleetData[host];
+    var rm='<td style="text-align:right"><button class="lnk-x" title="Remove" onclick="fleetRemove(\''+host+'\')">✕</button></td>';
+    if(res&&res.ok&&res.d){
+      var d=res.d;online++;var khs=d.hashrate_khs||0;totHash+=khs;totShares+=(d.shares||0);
+      var name=d.hostname||host,conn=d.pool_connected&&d.pool_subscribed;
+      return '<tr><td><a href="http://'+host+'/" target="_blank" rel="noopener" class="fl-link">'+name+(res.self?' <span style="color:var(--mt)">(this)</span>':'')+'</a></td>'+
+        '<td style="color:var(--mt)">'+(d.ip||host)+'</td>'+
+        '<td><span class="'+(conn?'pa':'pj')+'">'+(conn?'mining':(d.status||'sync'))+'</span></td>'+
+        '<td>'+fmtH(khs)+'</td><td>'+fmtN(d.shares)+'</td><td class="vb">'+fmtD(d.best_diff)+'</td>'+
+        '<td style="color:var(--mt)">'+fmtUp(d.uptime||0)+'</td>'+rm+'</tr>';
+    }
+    var st=res?'<span class="pj">offline</span>':'<span style="color:var(--mt)">polling…</span>';
+    return '<tr><td>'+host+'</td><td style="color:var(--mt)">—</td><td>'+st+'</td>'+
+      '<td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td>'+rm+'</tr>';
+  }).join('');
+  set('flOnline',String(online));set('flHash',fmtH(totHash));set('flShares',fmtN(totShares));
+}
+
+function fleetRemove(host){delete fleetData[host];fleet=fleet.filter(function(h){return h!==host;});fleetSave();renderFleet();}
+window.fleetRemove=fleetRemove;
+
+function fleetAdd(host){
+  host=(host||'').trim().replace(/^https?:\/\//,'').replace(/\/.*$/,'');
+  if(!host){toast('Enter an IP or hostname','err');return;}
+  if(fleet.indexOf(host)>=0){toast('Already in fleet','warn');el('fleetInput').value='';return;}
+  fleet.push(host);fleetSave();renderFleet();fleetRefresh();
+}
+window.fleetAddInput=function(){fleetAdd(el('fleetInput').value);el('fleetInput').value='';};
+
+function fleetPoll(host){
+  if(selfIp&&host===selfIp&&lastStatus)return Promise.resolve({host:host,ok:true,d:lastStatus,self:true});
+  var ctrl=new AbortController(),to=setTimeout(function(){ctrl.abort();},2500);
+  return fetch('http://'+host+'/api/status',{signal:ctrl.signal})
+    .then(function(r){clearTimeout(to);if(!r.ok)throw 0;return r.json();})
+    .then(function(d){return {host:host,ok:true,d:d,self:(host===selfIp)};})
+    .catch(function(){clearTimeout(to);return {host:host,ok:false,d:null};});
+}
+
+function fleetRefresh(){
+  if(!fleet.length){renderFleet();return;}
+  if(fleetBusy)return;
+  fleetBusy=true;
+  Promise.all(fleet.map(fleetPoll)).then(function(results){
+    results.forEach(function(res){fleetData[res.host]=res;});
+    fleetBusy=false;renderFleet();
+  }).catch(function(){fleetBusy=false;});
+}
+window.fleetRefresh=fleetRefresh;
 
 function pushAlert(type,msg){
   alertLog.unshift({t:nowT(),type:type,msg:msg});
@@ -595,8 +732,17 @@ function applyStatus(d){
   if(bd>0){diffHist.push(bd);if(diffHist.length>7)diffHist.shift();}
   renderDbars();
   var sv=(d.pool_url||'')+':'+(d.pool_port||'');
+  activePool=sv;
   var opt=el('poolSel').querySelector('option[value="'+sv+'"]');
   if(opt)el('poolSel').value=sv;
+  // Fleet self-tracking: remember our own data and auto-enrol this device
+  lastWallet=d.wallet||lastWallet;
+  selfIp=d.ip||selfIp;
+  lastStatus=d;
+  if(d.ip&&d.ip!=='0.0.0.0'&&!selfAdded){
+    selfAdded=true;
+    if(fleet.indexOf(d.ip)<0){fleet.push(d.ip);fleetSave();if(currentView==='fleet')renderFleet();}
+  }
   lastTs=new Date();updateFooter();
 }
 
@@ -609,11 +755,11 @@ function updateFooter(){
 }
 
 function addShare(result,diff){
-  shareLog.unshift({t:nowT(),r:result,d:fmtD(diff),l:(Math.floor(Math.random()*180)+40)+'ms'});
+  shareLog.unshift({t:nowT(),r:result,d:fmtD(diff)});
   if(shareLog.length>8)shareLog.pop();
   var tb=el('sTbody');if(!tb)return;
   tb.innerHTML=shareLog.map(function(s){
-    return '<tr><td>'+s.t+'</td><td><span class="'+(s.r==='accepted'?'pa':'pj')+'">'+s.r+'</span></td><td>'+s.d+'</td><td style="color:var(--mt)">'+s.l+'</td></tr>';
+    return '<tr><td>'+s.t+'</td><td><span class="'+(s.r==='accepted'?'pa':'pj')+'">'+s.r+'</span></td><td>'+s.d+'</td></tr>';
   }).join('');
 }
 
@@ -708,8 +854,10 @@ document.querySelectorAll('.mo').forEach(function(m){
 });
 
 pushLog('Dashboard connected','ok');
-fetchStatus();fetchSystem();loadCfg();
+fleetLoad();renderFleet();
+fetchStatus();fetchSystem();loadCfg();loadPools();
 setInterval(fetchStatus,POLL);setInterval(fetchSystem,30000);setInterval(updateFooter,1000);
+setInterval(function(){if(currentView==='fleet')fleetRefresh();},5000);
 window.addEventListener('resize',renderChart);
 
 })();

@@ -18,6 +18,9 @@
 #include <map>
 #include "mbedtls/sha256.h"
 #include "i2c_master.h"
+#ifdef ENABLE_WEBUI
+#include "webUI.h"   // share/pool event hooks consumed by the web dashboard
+#endif
 
 //10 Jobs per second
 #define NONCE_PER_JOB_SW 4096
@@ -307,7 +310,10 @@ void runStratumWorker(void *name) {
       client.stop();
       isMinerSuscribed=false;
       MiningJobStop(job_pool, s_submition_map);
-      continue; 
+#ifdef ENABLE_WEBUI
+      webui_notify_pool_disconnected();
+#endif
+      continue;
     }
 
     {
@@ -451,6 +457,9 @@ void runStratumWorker(void *name) {
                                             Serial.println("CONGRATULATIONS! Valid block found");
                                             valids++;
                                           }
+#ifdef ENABLE_WEBUI
+                                          webui_notify_share_accepted();
+#endif
                                           s_submition_map.erase(itt);
                                         }
                                       }
@@ -461,6 +470,9 @@ void runStratumWorker(void *name) {
                                         if (itt != s_submition_map.end())
                                         {
                                           Serial.printf("Refuse submition %d\n", id);
+#ifdef ENABLE_WEBUI
+                                          webui_notify_share_rejected();
+#endif
                                           s_submition_map.erase(itt);
                                         }
                                       }
