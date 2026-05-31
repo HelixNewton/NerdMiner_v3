@@ -355,6 +355,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
       <div style="display:flex;gap:8px;margin-bottom:14px">
         <input class="fi" id="fleetInput" type="text" placeholder="Add miner by IP or hostname (e.g. 192.168.1.50)" style="flex:1" onkeydown="if(event.key==='Enter')fleetAddInput()">
         <button class="btn btn-p" onclick="fleetAddInput()">Add</button>
+        <button class="btn btn-g" id="fleetScanBtn" onclick="fleetScan()">Scan LAN</button>
         <button class="btn btn-g" onclick="fleetRefresh()">Refresh</button>
       </div>
       <div class="fl-grid">
@@ -366,7 +367,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <thead><tr><th>Miner</th><th>IP</th><th>Status</th><th>Hashrate</th><th>Accepted</th><th>Best diff</th><th>Uptime</th><th></th></tr></thead>
         <tbody id="fleetBody"><tr><td colspan="8" class="empty-state">No miners yet &#x2014; add one above. This device is added automatically.</td></tr></tbody>
       </table>
-      <div class="dbars-lbl" style="margin-top:10px">Stats are polled directly from each miner&#x2019;s <code>/api/status</code> &#x2014; all miners must be on this same network.</div>
+      <div class="dbars-lbl" style="margin-top:10px"><strong>Scan LAN</strong> auto-discovers miners on this device&#x2019;s subnet. Stats are polled directly from each miner&#x2019;s <code>/api/status</code> &#x2014; all miners must be on this same network.</div>
     </div>
 
   </div>
@@ -434,7 +435,7 @@ var diffHist=[0,0,0,0,0,0,0],lastTs=null;
 var alertLog=[],sysLog=[],prevConn=null;
 var currentView='overview',activePool='',lastWallet='';
 // Fleet (multi-miner) state — miner hosts persisted per browser in localStorage
-var fleet=[],fleetData={},fleetBusy=false,selfIp=null,lastStatus=null,selfAdded=false;
+var fleet=[],fleetData={},fleetBusy=false,selfIp=null,lastStatus=null,selfAdded=false,scanning=false;
 // Pool list used to populate the switcher; replaced by GET /api/pools when available
 var POOLS_FALLBACK=[
   {name:'public-pool.io',host:'public-pool.io',port:21496},
@@ -659,6 +660,46 @@ function fleetRefresh(){
   }).catch(function(){fleetBusy=false;});
 }
 window.fleetRefresh=fleetRefresh;
+
+// Derive this device's /24 subnet from its own reported IP (e.g. "192.168.1")
+function deriveSubnet(){
+  var ip=(lastStatus&&lastStatus.ip)||selfIp||'';
+  if(!/^\d+\.\d+\.\d+\.\d+$/.test(ip))return null;
+  return ip.split('.').slice(0,3).join('.');
+}
+// Probe one IP for a NerdMiner. Cross-origin reads only succeed for hosts that
+// send CORS '*' (i.e. our miners); everything else times out or is blocked.
+function scanProbe(ip){
+  var ctrl=new AbortController(),to=setTimeout(function(){ctrl.abort();},1200);
+  return fetch('http://'+ip+'/api/status',{signal:ctrl.signal})
+    .then(function(r){clearTimeout(to);if(!r.ok)throw 0;return r.json();})
+    .then(function(d){return (d&&typeof d.hashrate_khs!=='undefined'&&typeof d.pool_subscribed!=='undefined')?ip:null;})
+    .catch(function(){clearTimeout(to);return null;});
+}
+// Sweep the local /24 in concurrency-limited batches and add any miners found.
+async function fleetScan(){
+  if(scanning)return;
+  var subnet=deriveSubnet();
+  if(!subnet){toast('Cannot determine your network — add a miner manually first','err');return;}
+  scanning=true;
+  var btn=el('fleetScanBtn');if(btn)btn.disabled=true;
+  var ips=[];for(var i=1;i<=254;i++)ips.push(subnet+'.'+i);
+  var found=0,added=0,done=0,CONC=24;
+  toast('Scanning '+subnet+'.0/24 …','warn');
+  for(var s=0;s<ips.length;s+=CONC){
+    var res=await Promise.all(ips.slice(s,s+CONC).map(scanProbe));
+    res.forEach(function(ip){if(ip){found++;if(fleet.indexOf(ip)<0){fleet.push(ip);added++;}}});
+    done=Math.min(ips.length,s+CONC);
+    if(btn)btn.textContent='Scanning… '+done+'/254';
+  }
+  fleetSave();
+  if(btn){btn.disabled=false;btn.textContent='Scan LAN';}
+  scanning=false;
+  toast('Scan complete — '+found+' miner'+(found===1?'':'s')+' found'+(added?(', '+added+' new'):''),found?'ok':'warn');
+  pushLog('LAN scan of '+subnet+'.0/24: '+found+' miner(s) found','ok');
+  renderFleet();fleetRefresh();
+}
+window.fleetScan=fleetScan;
 
 function pushAlert(type,msg){
   alertLog.unshift({t:nowT(),type:type,msg:msg});

@@ -19,7 +19,7 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 ### Features
 
 - **Live stats** — hashrate, shares accepted/rejected, best difficulty, uptime, free heap, templates received
-- **Fleet view** — monitor *all* your miners from one dashboard: add each by IP/hostname and see combined hashrate, total shares, and per-device status side by side (no need to open each IP individually)
+- **Fleet view** — monitor *all* your miners from one dashboard: **Scan LAN** auto-discovers every NerdMiner on your subnet (or add them by IP/hostname), then see combined hashrate, total shares, and per-device status side by side (no need to open each IP individually)
 - **Real-time share log & alerts** — accepted/rejected shares and pool disconnects appear live as they happen
 - **Real-time hashrate chart** — canvas sparkline with rolling window
 - **One-click pool switching** — pick a pool from the toolbar dropdown to retarget the miner instantly (list is served from the firmware's pool registry)
@@ -29,6 +29,10 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 - **Restart / Factory Reset** — one-click buttons with confirmation dialogs
 - **Optional API token auth** — protect the dashboard behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags)
 - **Mobile-friendly** — responsive dark UI, works on any browser
+
+The **Fleet** view aggregates every miner on your network in one place — add them manually or hit **Scan LAN** to auto-discover them:
+
+![Fleet view](images/fleet_preview.png)
 
 ### Accessing the Dashboard
 
