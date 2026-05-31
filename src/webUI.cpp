@@ -215,6 +215,27 @@ static void handleApiConfigGet() {
     httpServer.send(200, "application/json", out);
 }
 
+// ── GET /api/pools — known-pool registry for the dashboard switcher ─────────
+static void handleApiPools() {
+    addCors();
+    size_t n = 0;
+    const PoolDefinition* reg = getPoolRegistry(&n);
+
+    StaticJsonDocument<1024> doc;
+    JsonArray arr = doc.to<JsonArray>();
+    for (size_t i = 0; i < n; ++i) {
+        JsonObject o = arr.createNestedObject();
+        o["name"]    = reg[i].name;   // const char* stored by reference (zero copy)
+        o["host"]    = reg[i].host;
+        o["port"]    = reg[i].port;
+        o["has_api"] = (reg[i].apiFormat != POOL_API_NONE);
+    }
+
+    String out;
+    serializeJson(doc, out);
+    httpServer.send(200, "application/json", out);
+}
+
 // ── POST /api/config ───────────────────────────────────────────────────────
 static void handleApiConfigPost() {
     addCors();
@@ -402,6 +423,7 @@ static void webui_task(void* pvParameters) {
     httpServer.on("/api/system",    HTTP_GET,     handleApiSystem);
     httpServer.on("/api/config",    HTTP_GET,     handleApiConfigGet);
     httpServer.on("/api/config",    HTTP_POST,    handleApiConfigPost);
+    httpServer.on("/api/pools",     HTTP_GET,     handleApiPools);
     httpServer.on("/api/restart",   HTTP_POST,    handleApiRestart);
     httpServer.on("/api/reset",     HTTP_POST,    handleApiReset);
     httpServer.on("/api/pool/test", HTTP_GET,     handlePoolTest);

@@ -123,6 +123,29 @@ typedef struct{
   String bestDifficulty;  // Your miners best difficulty
 }pool_data;
 
+// ── Pool registry ──────────────────────────────────────────────────────────
+// Known pools and how to reach their per-wallet stats API. Adding a pool here
+// makes both the on-device "workers" screen and the web dashboard pool switcher
+// aware of it. To support a pool with a different JSON schema, add a value to
+// PoolApiFormat and handle it in getPoolData().
+enum PoolApiFormat {
+  POOL_API_NONE = 0,      // no public stats API — screen shows "N/A"
+  POOL_API_PUBLICPOOL,    // public-pool.io schema: {bestDifficulty, workersCount, workers[].hashRate}
+};
+
+typedef struct {
+  const char*   name;     // human-friendly label (shown in the dashboard dropdown)
+  const char*   host;     // stratum hostname
+  uint16_t      port;     // stratum port
+  const char*   apiUrl;   // stats API base; wallet is appended. "" when none
+  PoolApiFormat apiFormat;
+} PoolDefinition;
+
+// Returns the registry array and (via out param) its length.
+const PoolDefinition* getPoolRegistry(size_t* count);
+// Looks up a pool by host (port used as a tie-breaker). Returns nullptr if unknown.
+const PoolDefinition* findPoolDefinition(const String& host, int port);
+
 void setup_monitor(void);
 
 mining_data getMiningData(unsigned long mElapsed);

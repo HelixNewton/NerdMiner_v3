@@ -19,7 +19,10 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 ### Features
 
 - **Live stats** — hashrate, shares accepted/rejected, best difficulty, uptime, free heap, templates received
-- **Real-time hashrate chart** — canvas sparkline with 90-second rolling window
+- **Fleet view** — monitor *all* your miners from one dashboard: add each by IP/hostname and see combined hashrate, total shares, and per-device status side by side (no need to open each IP individually)
+- **Real-time share log & alerts** — accepted/rejected shares and pool disconnects appear live as they happen
+- **Real-time hashrate chart** — canvas sparkline with rolling window
+- **One-click pool switching** — pick a pool from the toolbar dropdown to retarget the miner instantly (list is served from the firmware's pool registry)
 - **Pool & WiFi status** — connection state, IP address, signal strength
 - **Config panel** — update wallet address, pool URL/port, and timezone directly from the browser
 - **OTA firmware update** — drag-and-drop `.bin` upload with progress bar; no USB cable needed
@@ -41,9 +44,13 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 | `GET` | `/api/system` | Chip info, free heap, uptime |
 | `GET` | `/api/config` | Current saved config |
 | `POST` | `/api/config` | Update config (restarts device) |
+| `GET` | `/api/pools` | Known-pool registry used by the pool switcher |
+| `GET` | `/api/pool/test` | Test reachability of the current pool |
 | `POST` | `/api/restart` | Soft restart |
 | `POST` | `/api/reset` | Factory reset (clears NVS) |
 | `POST` | `/api/ota` | OTA firmware upload (multipart) |
+
+> **Fleet polling:** the Fleet view fetches each miner's `/api/status` directly from your browser (CORS is enabled), so all miners must be on the same network you're browsing from. The miner list is stored per-browser in `localStorage`.
 
 ### Flash Scripts
 
