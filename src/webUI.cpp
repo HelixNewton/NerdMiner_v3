@@ -7,6 +7,7 @@
 #include <Update.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <cctype>
 #include "mining.h"
 #include "monitor.h"
@@ -370,6 +371,37 @@ static void handleApiFleetPost() {
     }
 }
 
+// ── GET /api/discover — on-device mDNS scan for other NerdMiners ────────────
+// Each miner advertises _nerdminer._tcp; this queries the LAN for peers and
+// returns them, so the dashboard doesn't have to brute-force sweep the /24.
+// MDNS.queryService blocks ~2-3s, which is fine on the webui task.
+static String sanitizeMdnsName(const String& s) {
+    String out;
+    for (size_t i = 0; i < s.length() && out.length() < 32; ++i) {
+        char c = s[i];
+        if (isalnum((unsigned char)c) || c == '.' || c == '-') out += c;
+    }
+    return out;
+}
+
+static void handleApiDiscover() {
+    addCors();
+    int n = MDNS.queryService("nerdminer", "tcp");
+    String out = "[";
+    int emitted = 0;
+    for (int i = 0; i < n && emitted < FLEET_MAX_HOSTS; ++i) {
+        IPAddress ip = MDNS.IP(i);
+        if (ip == IPAddress((uint32_t)0) || ip == WiFi.localIP()) continue;
+        if (emitted) out += ',';
+        out += "{\"host\":\"" + sanitizeMdnsName(MDNS.hostname(i)) + "\"";
+        out += ",\"ip\":\"" + ip.toString() + "\"";
+        out += ",\"port\":" + String(MDNS.port(i)) + "}";
+        ++emitted;
+    }
+    out += ']';
+    httpServer.send(200, "application/json", out);
+}
+
 // ── POST /api/config ───────────────────────────────────────────────────────
 static void handleApiConfigPost() {
     addCors();
@@ -561,6 +593,7 @@ static void webui_task(void* pvParameters) {
     httpServer.on("/api/pools",     HTTP_GET,     handleApiPools);
     httpServer.on("/api/fleet",     HTTP_GET,     handleApiFleetGet);
     httpServer.on("/api/fleet",     HTTP_POST,    handleApiFleetPost);
+    httpServer.on("/api/discover",  HTTP_GET,     handleApiDiscover);
     httpServer.on("/api/restart",   HTTP_POST,    handleApiRestart);
     httpServer.on("/api/reset",     HTTP_POST,    handleApiReset);
     httpServer.on("/api/pool/test", HTTP_GET,     handlePoolTest);
@@ -574,7 +607,25 @@ static void webui_task(void* pvParameters) {
         WiFi.localIP().toString().c_str(), WEBUI_PORT,
         uxTaskGetStackHighWaterMark(NULL));
 
+    // mDNS starts lazily once WiFi is connected (setup may run before that):
+    // announce nerdminer-xxxx.local and the _nerdminer._tcp service that
+    // /api/discover on other miners queries for.
+    bool mdnsStarted = false;
+
     while (true) {
+        if (!mdnsStarted && WiFi.status() == WL_CONNECTED) {
+            mdnsStarted = true;
+            uint8_t mac[6]; WiFi.macAddress(mac);
+            char host[24];
+            snprintf(host, sizeof(host), "nerdminer-%02x%02x", mac[4], mac[5]);
+            if (MDNS.begin(host)) {
+                MDNS.addService("nerdminer", "tcp", WEBUI_PORT);
+                MDNS.addService("http", "tcp", WEBUI_PORT);
+                Serial.printf("[WEBUI] mDNS responder: http://%s.local/\n", host);
+            } else {
+                Serial.println("[WEBUI] mDNS start failed");
+            }
+        }
         httpServer.handleClient();
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }

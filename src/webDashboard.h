@@ -749,22 +749,43 @@ function scanProbe(ip){
 // Sweep the local /24 in concurrency-limited batches and add any miners found.
 async function fleetScan(){
   if(scanning)return;
-  var subnet=deriveSubnet();
-  if(!subnet){toast('Cannot determine your network — add a miner manually first','err');return;}
   scanning=true;
-  var btn=el('fleetScanBtn');if(btn)btn.disabled=true;
-  var ips=[];for(var i=1;i<=254;i++)ips.push(subnet+'.'+i);
-  var found=0,done=0,CONC=24,newHosts=[];
-  toast('Scanning '+subnet+'.0/24 …','warn');
-  for(var s=0;s<ips.length;s+=CONC){
-    var res=await Promise.all(ips.slice(s,s+CONC).map(scanProbe));
-    res.forEach(function(ip){
-      if(!ip)return;
-      found++;
-      if(fleet.indexOf(ip)<0&&fleet.length+newHosts.length<FLEET_MAX)newHosts.push(ip);
-    });
-    done=Math.min(ips.length,s+CONC);
-    if(btn)btn.textContent='Scanning… '+done+'/254';
+  var btn=el('fleetScanBtn');if(btn){btn.disabled=true;btn.textContent='Scanning…';}
+  var found=0,newHosts=[];
+  function consider(h){
+    if(!fleetValid(h))return;
+    found++;
+    if(fleet.indexOf(h)<0&&newHosts.indexOf(h)<0&&fleet.length+newHosts.length<FLEET_MAX)newHosts.push(h);
+  }
+  // Fast path: the miner queries mDNS on-device (peers advertise _nerdminer._tcp),
+  // so discovery takes ~3s instead of sweeping 254 addresses from the browser.
+  var viaMdns=false;
+  try{
+    var r=await fetch('/api/discover');
+    if(r.ok){
+      var d=await r.json();
+      if(Array.isArray(d)&&d.length){
+        viaMdns=true;
+        d.forEach(function(m){if(m&&m.ip)consider(m.ip+(m.port&&m.port!==80?':'+m.port:''));});
+      }
+    }
+  }catch(e){}
+  if(!viaMdns){
+    var subnet=deriveSubnet();
+    if(!subnet){
+      toast('Cannot determine your network — add a miner manually first','err');
+      scanning=false;if(btn){btn.disabled=false;btn.textContent='Scan LAN';}
+      return;
+    }
+    toast('Scanning '+subnet+'.0/24 …','warn');
+    var ips=[];for(var i=1;i<=254;i++)ips.push(subnet+'.'+i);
+    var done=0,CONC=24;
+    for(var s=0;s<ips.length;s+=CONC){
+      var res=await Promise.all(ips.slice(s,s+CONC).map(scanProbe));
+      res.forEach(function(ip){if(ip)consider(ip);});
+      done=Math.min(ips.length,s+CONC);
+      if(btn)btn.textContent='Scanning… '+done+'/254';
+    }
   }
   var added=newHosts.length;
   if(added){
@@ -774,8 +795,8 @@ async function fleetScan(){
   }
   if(btn){btn.disabled=false;btn.textContent='Scan LAN';}
   scanning=false;
-  toast('Scan complete — '+found+' miner'+(found===1?'':'s')+' found'+(added?(', '+added+' new'):''),found?'ok':'warn');
-  pushLog('LAN scan of '+subnet+'.0/24: '+found+' miner(s) found','ok');
+  toast('Scan complete — '+found+' miner'+(found===1?'':'s')+' found'+(added?(', '+added+' new'):'')+(viaMdns?' via mDNS':''),found?'ok':'warn');
+  pushLog((viaMdns?'mDNS discovery':'LAN scan')+': '+found+' miner(s) found','ok');
   renderFleet();fleetRefresh();
 }
 window.fleetScan=fleetScan;
