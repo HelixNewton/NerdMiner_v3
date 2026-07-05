@@ -138,6 +138,49 @@ bool nvMemory::deleteConfig()
     return SPIFFS.remove(JSON_CONFIG_FILE); //Borramos fichero
 }
 
+/// @brief Save the Fleet view's host list (already validated JSON array) to SPIFFS
+/// @return true on success
+bool nvMemory::saveFleetHosts(const String& json)
+{
+    if (!init()) return false;
+
+    File f = SPIFFS.open(JSON_FLEET_FILE, "w");
+    if (!f)
+    {
+        Serial.println("SPIFS: Failed to open fleet file for writing");
+        return false;
+    }
+    // Require all bytes written — a short write (full FS) must not count as success
+    bool ok = (f.print(json) == json.length());
+    f.close();
+    return ok;
+}
+
+/// @brief Load the Fleet view's host list from SPIFFS
+/// @return raw JSON array string, or "null" if the list was never initialized
+///         (lets clients distinguish "user cleared the list" from "first run")
+String nvMemory::loadFleetHosts()
+{
+    if (init() && SPIFFS.exists(JSON_FLEET_FILE))
+    {
+        File f = SPIFFS.open(JSON_FLEET_FILE, "r");
+        if (f)
+        {
+            String out = f.readString();
+            f.close();
+            if (out.length() > 0) return out;
+        }
+    }
+    return "null";
+}
+
+/// @brief Delete the Fleet host list file from SPIFFS
+/// @return true on success
+bool nvMemory::deleteFleetHosts()
+{
+    return SPIFFS.remove(JSON_FLEET_FILE);
+}
+
 /// @brief Prepare and mount SPIFFS
 /// @return true on success
 bool nvMemory::init()
@@ -163,6 +206,9 @@ nvMemory::~nvMemory() {}
 bool nvMemory::saveConfig(TSettings* Settings) { return false; }
 bool nvMemory::loadConfig(TSettings* Settings) { return false; }
 bool nvMemory::deleteConfig() { return false; }
+bool nvMemory::saveFleetHosts(const String& json) { return false; }
+String nvMemory::loadFleetHosts() { return "null"; }
+bool nvMemory::deleteFleetHosts() { return false; }
 bool nvMemory::init() { return false; }
 
 

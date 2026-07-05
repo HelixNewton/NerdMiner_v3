@@ -16,6 +16,11 @@ public:
     bool saveConfig(TSettings* Settings);
     bool loadConfig(TSettings* Settings);
     bool deleteConfig();
+    // Fleet (multi-miner dashboard) host list — stored as a raw JSON array string,
+    // pre-validated by the caller. Persists across browsers since it lives on-device.
+    bool saveFleetHosts(const String& json);
+    String loadFleetHosts();
+    bool deleteFleetHosts();
 private:
     bool init();
     bool Initialized_;

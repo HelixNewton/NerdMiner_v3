@@ -23,6 +23,7 @@
 
 // JSON config files
 #define JSON_CONFIG_FILE	"/config.json"
+#define JSON_FLEET_FILE		"/fleet.json"
 
 // JSON config file SD card (for user interaction, readme.md)
 #define JSON_KEY_SSID		"SSID"

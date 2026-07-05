@@ -434,8 +434,11 @@ var hrBuf=[],rejected=0,shareLog=[],lastShare=null,tz=0,saveStats=false;
 var diffHist=[0,0,0,0,0,0,0],lastTs=null;
 var alertLog=[],sysLog=[],prevConn=null;
 var currentView='overview',activePool='',lastWallet='';
-// Fleet (multi-miner) state — miner hosts persisted per browser in localStorage
+// Fleet (multi-miner) state — host list persisted on-device (NVS) so every
+// browser that opens this miner sees the same fleet; localStorage is only a
+// same-tab instant-paint cache.
 var fleet=[],fleetData={},fleetBusy=false,selfIp=null,lastStatus=null,selfAdded=false,scanning=false;
+var fleetLoaded=false,fleetPendingSelf=null,FLEET_MAX=32;
 // Pool list used to populate the switcher; replaced by GET /api/pools when available
 var POOLS_FALLBACK=[
   {name:'public-pool.io',host:'public-pool.io',port:21496},
@@ -600,8 +603,67 @@ async function onPoolSel(v){
 window.onPoolSel=onPoolSel;
 
 // ── Fleet (multi-miner) ─────────────────────────────────────────────────────
-function fleetLoad(){try{fleet=JSON.parse(localStorage.getItem('nm_fleet')||'[]');}catch(e){fleet=[];}if(!Array.isArray(fleet))fleet=[];}
-function fleetSave(){try{localStorage.setItem('nm_fleet',JSON.stringify(fleet));}catch(e){}}
+function fleetEsc(s){
+  return String(s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+// host or host:port — must match the device-side isValidFleetHost()
+function fleetValid(h){return typeof h==='string'&&/^[A-Za-z0-9.\-]+(:\d{1,5})?$/.test(h);}
+function fleetCache(){try{localStorage.setItem('nm_fleet',JSON.stringify(fleet));}catch(e){}}
+
+// All persistence goes through the device as {"add":[],"remove":[]} deltas,
+// serialized on a promise queue so rapid edits can't reorder. The device
+// merges and returns the authoritative list, which we adopt.
+var fleetQueue=Promise.resolve();
+function fleetMutate(adds,removes){
+  fleetQueue=fleetQueue.then(function(){
+    return fetch('/api/fleet',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({add:adds||[],remove:removes||[]})})
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .then(function(d){
+        if(d&&Array.isArray(d.hosts)){fleet=d.hosts;fleetCache();renderFleet();}
+        if(d&&d.truncated)toast('Fleet limit ('+FLEET_MAX+') reached — some miners not saved','warn');
+      })
+      .catch(function(e){
+        toast('Fleet sync failed — change kept in this browser only','warn');
+        pushLog('Fleet sync failed: '+e.message,'warn');
+      });
+  });
+  return fleetQueue;
+}
+
+// Instant paint from the localStorage cache, then reconcile with the device
+// (source of truth): an array — even an empty one — is authoritative; literal
+// null means never initialized, so migrate this browser's cache up once.
+function fleetLoad(){
+  var local=[];
+  try{local=JSON.parse(localStorage.getItem('nm_fleet')||'[]');}catch(e){local=[];}
+  if(!Array.isArray(local))local=[];
+  local=local.filter(fleetValid);
+  fleet=local.slice();
+  if(fleet.length)renderFleet();
+  var ctrl=('AbortController' in window)?new AbortController():null;
+  var tmr=ctrl?setTimeout(function(){ctrl.abort();},4000):null;
+  fetch('/api/fleet',ctrl?{signal:ctrl.signal}:{})
+    .then(function(r){if(tmr)clearTimeout(tmr);if(!r.ok)throw 0;return r.json();})
+    .then(function(arr){
+      if(Array.isArray(arr)){fleet=arr;fleetCache();}
+      else if(arr===null&&local.length)return fleetMutate(local,[]);
+    })
+    .catch(function(){if(tmr)clearTimeout(tmr);})
+    .then(fleetSyncDone,fleetSyncDone);
+}
+function fleetSyncDone(){
+  fleetLoaded=true;
+  if(fleetPendingSelf&&fleet.indexOf(fleetPendingSelf)<0){
+    fleet.push(fleetPendingSelf);fleetCache();fleetMutate([fleetPendingSelf],[]);
+  }
+  fleetPendingSelf=null;
+  renderFleet();
+  if(currentView==='fleet')fleetRefresh();
+}
 
 function renderFleet(){
   var body=el('fleetBody');if(!body)return;
@@ -613,31 +675,39 @@ function renderFleet(){
   var online=0,totHash=0,totShares=0;
   body.innerHTML=fleet.map(function(host){
     var res=fleetData[host];
-    var rm='<td style="text-align:right"><button class="lnk-x" title="Remove" onclick="fleetRemove(\''+host+'\')">✕</button></td>';
+    var rm='<td style="text-align:right"><button class="lnk-x" title="Remove" data-host="'+fleetEsc(host)+'">✕</button></td>';
     if(res&&res.ok&&res.d){
       var d=res.d;online++;var khs=d.hashrate_khs||0;totHash+=khs;totShares+=(d.shares||0);
       var name=d.hostname||host,conn=d.pool_connected&&d.pool_subscribed;
-      return '<tr><td><a href="http://'+host+'/" target="_blank" rel="noopener" class="fl-link">'+name+(res.self?' <span style="color:var(--mt)">(this)</span>':'')+'</a></td>'+
-        '<td style="color:var(--mt)">'+(d.ip||host)+'</td>'+
-        '<td><span class="'+(conn?'pa':'pj')+'">'+(conn?'mining':(d.status||'sync'))+'</span></td>'+
+      return '<tr><td><a href="http://'+fleetEsc(host)+'/" target="_blank" rel="noopener" class="fl-link">'+fleetEsc(name)+(res.self?' <span style="color:var(--mt)">(this)</span>':'')+'</a></td>'+
+        '<td style="color:var(--mt)">'+fleetEsc(d.ip||host)+'</td>'+
+        '<td><span class="'+(conn?'pa':'pj')+'">'+(conn?'mining':fleetEsc(d.status||'sync'))+'</span></td>'+
         '<td>'+fmtH(khs)+'</td><td>'+fmtN(d.shares)+'</td><td class="vb">'+fmtD(d.best_diff)+'</td>'+
         '<td style="color:var(--mt)">'+fmtUp(d.uptime||0)+'</td>'+rm+'</tr>';
     }
     var st=res?'<span class="pj">offline</span>':'<span style="color:var(--mt)">polling…</span>';
-    return '<tr><td>'+host+'</td><td style="color:var(--mt)">—</td><td>'+st+'</td>'+
+    return '<tr><td>'+fleetEsc(host)+'</td><td style="color:var(--mt)">—</td><td>'+st+'</td>'+
       '<td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td>'+rm+'</tr>';
   }).join('');
   set('flOnline',String(online));set('flHash',fmtH(totHash));set('flShares',fmtN(totShares));
 }
 
-function fleetRemove(host){delete fleetData[host];fleet=fleet.filter(function(h){return h!==host;});fleetSave();renderFleet();}
+function fleetRemove(host){
+  delete fleetData[host];
+  fleet=fleet.filter(function(h){return h!==host;});
+  fleetCache();renderFleet();
+  fleetMutate([],[host]);
+}
 window.fleetRemove=fleetRemove;
 
 function fleetAdd(host){
   host=(host||'').trim().replace(/^https?:\/\//,'').replace(/\/.*$/,'');
   if(!host){toast('Enter an IP or hostname','err');return;}
+  if(!fleetValid(host)){toast('Invalid IP or hostname','err');return;}
   if(fleet.indexOf(host)>=0){toast('Already in fleet','warn');el('fleetInput').value='';return;}
-  fleet.push(host);fleetSave();renderFleet();fleetRefresh();
+  if(fleet.length>=FLEET_MAX){toast('Fleet limit ('+FLEET_MAX+') reached','err');return;}
+  fleet.push(host);fleetCache();renderFleet();fleetRefresh();
+  fleetMutate([host],[]);
 }
 window.fleetAddInput=function(){fleetAdd(el('fleetInput').value);el('fleetInput').value='';};
 
@@ -684,15 +754,24 @@ async function fleetScan(){
   scanning=true;
   var btn=el('fleetScanBtn');if(btn)btn.disabled=true;
   var ips=[];for(var i=1;i<=254;i++)ips.push(subnet+'.'+i);
-  var found=0,added=0,done=0,CONC=24;
+  var found=0,done=0,CONC=24,newHosts=[];
   toast('Scanning '+subnet+'.0/24 …','warn');
   for(var s=0;s<ips.length;s+=CONC){
     var res=await Promise.all(ips.slice(s,s+CONC).map(scanProbe));
-    res.forEach(function(ip){if(ip){found++;if(fleet.indexOf(ip)<0){fleet.push(ip);added++;}}});
+    res.forEach(function(ip){
+      if(!ip)return;
+      found++;
+      if(fleet.indexOf(ip)<0&&fleet.length+newHosts.length<FLEET_MAX)newHosts.push(ip);
+    });
     done=Math.min(ips.length,s+CONC);
     if(btn)btn.textContent='Scanning… '+done+'/254';
   }
-  fleetSave();
+  var added=newHosts.length;
+  if(added){
+    fleet=fleet.concat(newHosts);
+    fleetCache();
+    fleetMutate(newHosts,[]);
+  }
   if(btn){btn.disabled=false;btn.textContent='Scan LAN';}
   scanning=false;
   toast('Scan complete — '+found+' miner'+(found===1?'':'s')+' found'+(added?(', '+added+' new'):''),found?'ok':'warn');
@@ -782,7 +861,12 @@ function applyStatus(d){
   lastStatus=d;
   if(d.ip&&d.ip!=='0.0.0.0'&&!selfAdded){
     selfAdded=true;
-    if(fleet.indexOf(d.ip)<0){fleet.push(d.ip);fleetSave();if(currentView==='fleet')renderFleet();}
+    if(!fleetLoaded){
+      fleetPendingSelf=d.ip; // applied once fleetLoad() reconciles with the device's list
+    }else if(fleet.indexOf(d.ip)<0){
+      fleet.push(d.ip);fleetCache();fleetMutate([d.ip],[]);
+      if(currentView==='fleet')renderFleet();
+    }
   }
   lastTs=new Date();updateFooter();
 }
@@ -894,8 +978,15 @@ document.querySelectorAll('.mo').forEach(function(m){
   m.addEventListener('click',function(e){if(e.target===m)m.classList.remove('show');});
 });
 
+// Delegated remove-button handler: reads the host from a data attribute instead
+// of an inline onclick, so host strings never reach a JS-string context.
+el('fleetBody').addEventListener('click',function(e){
+  var b=e.target.closest?e.target.closest('button[data-host]'):null;
+  if(b)fleetRemove(b.getAttribute('data-host'));
+});
+
 pushLog('Dashboard connected','ok');
-fleetLoad();renderFleet();
+fleetLoad();
 fetchStatus();fetchSystem();loadCfg();loadPools();
 setInterval(fetchStatus,POLL);setInterval(fetchSystem,30000);setInterval(updateFooter,1000);
 setInterval(function(){if(currentView==='fleet')fleetRefresh();},5000);

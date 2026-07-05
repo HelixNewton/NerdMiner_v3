@@ -54,7 +54,7 @@ The **Fleet** view aggregates every miner on your network in one place — add t
 | `POST` | `/api/reset` | Factory reset (clears NVS) |
 | `POST` | `/api/ota` | OTA firmware upload (multipart) |
 
-> **Fleet polling:** the Fleet view fetches each miner's `/api/status` directly from your browser (CORS is enabled), so all miners must be on the same network you're browsing from. The miner list is stored per-browser in `localStorage`.
+> **Fleet polling:** the Fleet view fetches each miner's `/api/status` directly from your browser (CORS is enabled), so all miners must be on the same network you're browsing from. The miner list is persisted on the device itself (`/api/fleet`), so every browser that opens a miner's dashboard sees the same fleet; `localStorage` is only used as a local cache for instant paint.
 
 ### Flash Scripts
 

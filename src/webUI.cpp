@@ -7,6 +7,7 @@
 #include <Update.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <cctype>
 #include "mining.h"
 #include "monitor.h"
 #include "drivers/storage/storage.h"
@@ -237,6 +238,138 @@ static void handleApiPools() {
     httpServer.send(200, "application/json", out);
 }
 
+// ── GET/POST /api/fleet — Fleet view host list, persisted on-device so it's ──
+// shared across every browser that opens this miner's dashboard (not just the
+// browser that added the entries to localStorage).
+//
+// GET returns the stored JSON array, or literal `null` if the list was never
+// initialized (lets clients distinguish "cleared" from "first run").
+// POST takes deltas — {"add":["host",...],"remove":["host",...]} — merges them
+// into the stored list and returns the authoritative result. Deltas commute,
+// so concurrent browsers can't erase each other's additions the way a
+// full-list replace would.
+#define FLEET_MAX_HOSTS  32
+#define FLEET_HOST_MAXLEN 64
+
+// host or host:port — host is alnum/dot/dash, port (if present) is 1-65535
+static bool isValidFleetHost(const String& h) {
+    if (h.length() == 0 || h.length() > FLEET_HOST_MAXLEN) return false;
+    int colon = h.indexOf(':');
+    int hostLen = (colon >= 0) ? colon : (int)h.length();
+    if (hostLen == 0) return false;
+    for (int i = 0; i < hostLen; ++i) {
+        char c = h[i];
+        if (!(isalnum((unsigned char)c) || c == '.' || c == '-')) return false;
+    }
+    if (colon >= 0) {
+        if (h.indexOf(':', colon + 1) >= 0) return false;
+        String port = h.substring(colon + 1);
+        if (port.length() == 0 || port.length() > 5) return false;
+        for (size_t i = 0; i < port.length(); ++i)
+            if (!isdigit((unsigned char)port[i])) return false;
+        long p = port.toInt();
+        if (p < 1 || p > 65535) return false;
+    }
+    return true;
+}
+
+static void handleApiFleetGet() {
+    addCors();
+    if (!checkAuth()) return;
+    httpServer.send(200, "application/json", nvMem.loadFleetHosts());
+}
+
+static void handleApiFleetPost() {
+    addCors();
+    if (!checkAuth()) return;
+
+    String body = httpServer.arg("plain");
+    if (body.isEmpty()) {
+        httpServer.send(400, "application/json",
+            "{\"success\":false,\"error\":\"Empty body\"}");
+        return;
+    }
+
+    // Heap-allocated: 32 hosts x 64 chars needs ~2.3KB of string pool, too big
+    // to double up on the task stack.
+    DynamicJsonDocument doc(2560);
+    DeserializationError err = deserializeJson(doc, body);
+    if (err || !doc.is<JsonObject>()) {
+        httpServer.send(400, "application/json",
+            "{\"success\":false,\"error\":\"Expected {\\\"add\\\":[],\\\"remove\\\":[]}\"}");
+        return;
+    }
+
+    // Load current list
+    String hosts[FLEET_MAX_HOSTS];
+    size_t n = 0;
+    String curStr = nvMem.loadFleetHosts();
+    {
+        DynamicJsonDocument cur(2560);
+        if (deserializeJson(cur, curStr) == DeserializationError::Ok && cur.is<JsonArray>()) {
+            for (JsonVariant v : cur.as<JsonArray>()) {
+                if (n >= FLEET_MAX_HOSTS) break;
+                if (v.is<const char*>()) hosts[n++] = v.as<String>();
+            }
+        }
+    }
+
+    // Apply removals
+    if (doc["remove"].is<JsonArray>()) {
+        for (JsonVariant v : doc["remove"].as<JsonArray>()) {
+            if (!v.is<const char*>()) continue;
+            String h = v.as<String>();
+            h.trim();
+            for (size_t i = 0; i < n; ++i) {
+                if (hosts[i] == h) {
+                    for (size_t j = i + 1; j < n; ++j) hosts[j - 1] = hosts[j];
+                    --n;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Apply additions (validated, deduped, capped)
+    bool truncated = false;
+    if (doc["add"].is<JsonArray>()) {
+        for (JsonVariant v : doc["add"].as<JsonArray>()) {
+            if (!v.is<const char*>()) continue;
+            String h = v.as<String>();
+            h.trim();
+            if (!isValidFleetHost(h)) continue;
+            bool dup = false;
+            for (size_t i = 0; i < n; ++i) if (hosts[i] == h) { dup = true; break; }
+            if (dup) continue;
+            if (n >= FLEET_MAX_HOSTS) { truncated = true; continue; }
+            hosts[n++] = h;
+        }
+    }
+
+    // Hosts are charset-validated (no quotes/backslashes possible), safe to embed
+    String out = "[";
+    for (size_t i = 0; i < n; ++i) {
+        if (i) out += ',';
+        out += '"';
+        out += hosts[i];
+        out += '"';
+    }
+    out += ']';
+
+    bool ok = (out == curStr) || nvMem.saveFleetHosts(out);
+    if (ok) {
+        String resp = "{\"success\":true,\"truncated\":";
+        resp += truncated ? "true" : "false";
+        resp += ",\"hosts\":";
+        resp += out;
+        resp += '}';
+        httpServer.send(200, "application/json", resp);
+    } else {
+        httpServer.send(500, "application/json",
+            "{\"success\":false,\"error\":\"Failed to save fleet list\"}");
+    }
+}
+
 // ── POST /api/config ───────────────────────────────────────────────────────
 static void handleApiConfigPost() {
     addCors();
@@ -337,6 +470,7 @@ static void handleApiReset() {
     // Delegate to the existing reset function declared in wManager.h
     vTaskDelay(500 / portTICK_PERIOD_MS);
     nvMem.deleteConfig();
+    nvMem.deleteFleetHosts();
     resetStat();
     ESP.restart();
 }
@@ -425,6 +559,8 @@ static void webui_task(void* pvParameters) {
     httpServer.on("/api/config",    HTTP_GET,     handleApiConfigGet);
     httpServer.on("/api/config",    HTTP_POST,    handleApiConfigPost);
     httpServer.on("/api/pools",     HTTP_GET,     handleApiPools);
+    httpServer.on("/api/fleet",     HTTP_GET,     handleApiFleetGet);
+    httpServer.on("/api/fleet",     HTTP_POST,    handleApiFleetPost);
     httpServer.on("/api/restart",   HTTP_POST,    handleApiRestart);
     httpServer.on("/api/reset",     HTTP_POST,    handleApiReset);
     httpServer.on("/api/pool/test", HTTP_GET,     handlePoolTest);
