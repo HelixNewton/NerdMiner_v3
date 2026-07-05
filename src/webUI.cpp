@@ -201,6 +201,7 @@ static void handleApiSystem() {
 // ── GET /api/config ────────────────────────────────────────────────────────
 static void handleApiConfigGet() {
     addCors();
+    if (!checkAuth()) return;
 
     StaticJsonDocument<256> doc;
     doc["pool_url"]   = Settings.PoolAddress;
