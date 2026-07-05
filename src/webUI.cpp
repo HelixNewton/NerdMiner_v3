@@ -291,9 +291,10 @@ static void handleApiFleetPost() {
         return;
     }
 
-    // Heap-allocated: 32 hosts x 64 chars needs ~2.3KB of string pool, too big
-    // to double up on the task stack.
-    DynamicJsonDocument doc(2560);
+    // Heap-allocated (too big for the task stack). Sized for the worst valid
+    // body: 32 adds + 32 removes at 64 chars each — ArduinoJson copies every
+    // string into the pool when parsing from a String.
+    DynamicJsonDocument doc(6144);
     DeserializationError err = deserializeJson(doc, body);
     if (err || !doc.is<JsonObject>()) {
         httpServer.send(400, "application/json",
@@ -301,17 +302,22 @@ static void handleApiFleetPost() {
         return;
     }
 
-    // Load current list
+    // Load current list. If the stored file exists but fails to parse, bail
+    // rather than treating it as empty — applying a delta to an empty base
+    // would silently erase the whole persisted fleet.
     String hosts[FLEET_MAX_HOSTS];
     size_t n = 0;
     String curStr = nvMem.loadFleetHosts();
-    {
-        DynamicJsonDocument cur(2560);
-        if (deserializeJson(cur, curStr) == DeserializationError::Ok && cur.is<JsonArray>()) {
-            for (JsonVariant v : cur.as<JsonArray>()) {
-                if (n >= FLEET_MAX_HOSTS) break;
-                if (v.is<const char*>()) hosts[n++] = v.as<String>();
-            }
+    if (curStr != "null") {
+        DynamicJsonDocument cur(4096);
+        if (deserializeJson(cur, curStr) != DeserializationError::Ok || !cur.is<JsonArray>()) {
+            httpServer.send(500, "application/json",
+                "{\"success\":false,\"error\":\"Stored fleet list unreadable\"}");
+            return;
+        }
+        for (JsonVariant v : cur.as<JsonArray>()) {
+            if (n >= FLEET_MAX_HOSTS) break;
+            if (v.is<const char*>()) hosts[n++] = v.as<String>();
         }
     }
 
@@ -375,17 +381,9 @@ static void handleApiFleetPost() {
 // Each miner advertises _nerdminer._tcp; this queries the LAN for peers and
 // returns them, so the dashboard doesn't have to brute-force sweep the /24.
 // MDNS.queryService blocks ~2-3s, which is fine on the webui task.
-static String sanitizeMdnsName(const String& s) {
-    String out;
-    for (size_t i = 0; i < s.length() && out.length() < 32; ++i) {
-        char c = s[i];
-        if (isalnum((unsigned char)c) || c == '.' || c == '-') out += c;
-    }
-    return out;
-}
-
 static void handleApiDiscover() {
     addCors();
+    if (!checkAuth()) return;
     int n = MDNS.queryService("nerdminer", "tcp");
     String out = "[";
     int emitted = 0;
@@ -393,8 +391,7 @@ static void handleApiDiscover() {
         IPAddress ip = MDNS.IP(i);
         if (ip == IPAddress((uint32_t)0) || ip == WiFi.localIP()) continue;
         if (emitted) out += ',';
-        out += "{\"host\":\"" + sanitizeMdnsName(MDNS.hostname(i)) + "\"";
-        out += ",\"ip\":\"" + ip.toString() + "\"";
+        out += "{\"ip\":\"" + ip.toString() + "\"";
         out += ",\"port\":" + String(MDNS.port(i)) + "}";
         ++emitted;
     }
@@ -607,17 +604,20 @@ static void webui_task(void* pvParameters) {
         WiFi.localIP().toString().c_str(), WEBUI_PORT,
         uxTaskGetStackHighWaterMark(NULL));
 
-    // mDNS starts lazily once WiFi is connected (setup may run before that):
-    // announce nerdminer-xxxx.local and the _nerdminer._tcp service that
+    // mDNS starts lazily once WiFi is connected (setup may run before that)
+    // and restarts after every reconnect — the responder binds to the netif/IP
+    // at begin() time, so a DHCP change would otherwise leave it stale.
+    // Announces nerdminer-xxxx.local plus the _nerdminer._tcp service that
     // /api/discover on other miners queries for.
-    bool mdnsStarted = false;
+    bool wifiWasConnected = false;
 
     while (true) {
-        if (!mdnsStarted && WiFi.status() == WL_CONNECTED) {
-            mdnsStarted = true;
+        bool wifiNow = (WiFi.status() == WL_CONNECTED);
+        if (wifiNow && !wifiWasConnected) {
             uint8_t mac[6]; WiFi.macAddress(mac);
             char host[24];
             snprintf(host, sizeof(host), "nerdminer-%02x%02x", mac[4], mac[5]);
+            MDNS.end();
             if (MDNS.begin(host)) {
                 MDNS.addService("nerdminer", "tcp", WEBUI_PORT);
                 MDNS.addService("http", "tcp", WEBUI_PORT);
@@ -626,6 +626,7 @@ static void webui_task(void* pvParameters) {
                 Serial.println("[WEBUI] mDNS start failed");
             }
         }
+        wifiWasConnected = wifiNow;
         httpServer.handleClient();
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }

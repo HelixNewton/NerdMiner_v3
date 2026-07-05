@@ -612,6 +612,16 @@ function fleetEsc(s){
 
 // host or host:port — must match the device-side isValidFleetHost()
 function fleetValid(h){return typeof h==='string'&&/^[A-Za-z0-9.\-]+(:\d{1,5})?$/.test(h);}
+
+// fetch with an abort timeout — shared by every fleet network call
+function fetchT(url,ms,opts){
+  var ctrl=('AbortController' in window)?new AbortController():null;
+  var o=opts||{};
+  if(ctrl)o.signal=ctrl.signal;
+  var tmr=ctrl?setTimeout(function(){ctrl.abort();},ms):null;
+  var done=function(){if(tmr)clearTimeout(tmr);};
+  return fetch(url,o).then(function(r){done();return r;},function(e){done();throw e;});
+}
 function fleetCache(){try{localStorage.setItem('nm_fleet',JSON.stringify(fleet));}catch(e){}}
 
 // All persistence goes through the device as {"add":[],"remove":[]} deltas,
@@ -642,18 +652,16 @@ function fleetLoad(){
   var local=[];
   try{local=JSON.parse(localStorage.getItem('nm_fleet')||'[]');}catch(e){local=[];}
   if(!Array.isArray(local))local=[];
-  local=local.filter(fleetValid);
+  local=local.filter(fleetValid).slice(0,FLEET_MAX);
   fleet=local.slice();
   if(fleet.length)renderFleet();
-  var ctrl=('AbortController' in window)?new AbortController():null;
-  var tmr=ctrl?setTimeout(function(){ctrl.abort();},4000):null;
-  fetch('/api/fleet',ctrl?{signal:ctrl.signal}:{})
-    .then(function(r){if(tmr)clearTimeout(tmr);if(!r.ok)throw 0;return r.json();})
+  fetchT('/api/fleet',4000)
+    .then(function(r){if(!r.ok)throw 0;return r.json();})
     .then(function(arr){
       if(Array.isArray(arr)){fleet=arr;fleetCache();}
       else if(arr===null&&local.length)return fleetMutate(local,[]);
     })
-    .catch(function(){if(tmr)clearTimeout(tmr);})
+    .catch(function(){})
     .then(fleetSyncDone,fleetSyncDone);
 }
 function fleetSyncDone(){
@@ -714,11 +722,10 @@ window.fleetAddInput=function(){fleetAdd(el('fleetInput').value);el('fleetInput'
 
 function fleetPoll(host){
   if(selfIp&&host===selfIp&&lastStatus)return Promise.resolve({host:host,ok:true,d:lastStatus,self:true});
-  var ctrl=new AbortController(),to=setTimeout(function(){ctrl.abort();},2500);
-  return fetch('http://'+host+'/api/status',{signal:ctrl.signal})
-    .then(function(r){clearTimeout(to);if(!r.ok)throw 0;return r.json();})
+  return fetchT('http://'+host+'/api/status',2500)
+    .then(function(r){if(!r.ok)throw 0;return r.json();})
     .then(function(d){return {host:host,ok:true,d:d,self:(host===selfIp)};})
-    .catch(function(){clearTimeout(to);return {host:host,ok:false,d:null};});
+    .catch(function(){return {host:host,ok:false,d:null};});
 }
 
 function fleetRefresh(){
@@ -741,11 +748,10 @@ function deriveSubnet(){
 // Probe one IP for a NerdMiner. Cross-origin reads only succeed for hosts that
 // send CORS '*' (i.e. our miners); everything else times out or is blocked.
 function scanProbe(ip){
-  var ctrl=new AbortController(),to=setTimeout(function(){ctrl.abort();},1200);
-  return fetch('http://'+ip+'/api/status',{signal:ctrl.signal})
-    .then(function(r){clearTimeout(to);if(!r.ok)throw 0;return r.json();})
+  return fetchT('http://'+ip+'/api/status',1200)
+    .then(function(r){if(!r.ok)throw 0;return r.json();})
     .then(function(d){return (d&&typeof d.hashrate_khs!=='undefined'&&typeof d.pool_subscribed!=='undefined')?ip:null;})
-    .catch(function(){clearTimeout(to);return null;});
+    .catch(function(){return null;});
 }
 // Sweep the local /24 in concurrency-limited batches and add any miners found.
 async function fleetScan(){
@@ -809,16 +815,15 @@ async function fleetRestartAll(){
   if(!fleet.length){toast('No miners in fleet','warn');return;}
   if(!confirm('Restart ALL '+fleet.length+' miner'+(fleet.length===1?'':'s')+' in the fleet?'))return;
   var btn=el('fleetRestartBtn');if(btn)btn.disabled=true;
-  var self=selfIp&&fleet.indexOf(selfIp)>=0?selfIp:null;
-  var others=fleet.filter(function(h){return h!==self;});
+  // self may be stored bare or with an explicit :80 — match both
+  function isSelfHost(h){return !!selfIp&&(h===selfIp||h===selfIp+':80');}
+  var self=fleet.filter(isSelfHost)[0]||null;
+  var others=fleet.filter(function(h){return !isSelfHost(h);});
   var ok=0,fail=0;
   await Promise.all(others.map(function(h){
-    var ctrl=('AbortController' in window)?new AbortController():null;
-    var tmr=ctrl?setTimeout(function(){ctrl.abort();},4000):null;
-    var opts={method:'POST'};if(ctrl)opts.signal=ctrl.signal;
-    return fetch('http://'+h+'/api/restart',opts)
-      .then(function(r){if(tmr)clearTimeout(tmr);if(r.ok)ok++;else fail++;})
-      .catch(function(){if(tmr)clearTimeout(tmr);fail++;});
+    return fetchT('http://'+h+'/api/restart',4000,{method:'POST'})
+      .then(function(r){if(r.ok)ok++;else fail++;})
+      .catch(function(){fail++;});
   }));
   var msg='Restarted '+ok+' of '+others.length+' peer'+(others.length===1?'':'s')+(fail?(' ('+fail+' failed)'):'');
   pushLog('Fleet restart: '+msg,fail?'warn':'ok');
