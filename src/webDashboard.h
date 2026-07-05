@@ -357,6 +357,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <button class="btn btn-p" onclick="fleetAddInput()">Add</button>
         <button class="btn btn-g" id="fleetScanBtn" onclick="fleetScan()">Scan LAN</button>
         <button class="btn btn-g" onclick="fleetRefresh()">Refresh</button>
+        <button class="btn btn-g" id="fleetRestartBtn" onclick="fleetRestartAll()">Restart all</button>
       </div>
       <div class="fl-grid">
         <div class="sc" style="border-top-color:var(--grn)"><div class="sc-lbl" style="color:var(--grn)"><i class="ti ti-cpu"></i>Online</div><div class="sc-v" style="color:var(--grn)" id="flOnline">&#x2014;</div><div class="sc-s">miners reachable</div></div>
@@ -800,6 +801,34 @@ async function fleetScan(){
   renderFleet();fleetRefresh();
 }
 window.fleetScan=fleetScan;
+
+// Restart every miner in the fleet. Peers first (in parallel, so their
+// results can be reported), then this device last — restarting self kills
+// the server the dashboard is talking to.
+async function fleetRestartAll(){
+  if(!fleet.length){toast('No miners in fleet','warn');return;}
+  if(!confirm('Restart ALL '+fleet.length+' miner'+(fleet.length===1?'':'s')+' in the fleet?'))return;
+  var btn=el('fleetRestartBtn');if(btn)btn.disabled=true;
+  var self=selfIp&&fleet.indexOf(selfIp)>=0?selfIp:null;
+  var others=fleet.filter(function(h){return h!==self;});
+  var ok=0,fail=0;
+  await Promise.all(others.map(function(h){
+    var ctrl=('AbortController' in window)?new AbortController():null;
+    var tmr=ctrl?setTimeout(function(){ctrl.abort();},4000):null;
+    var opts={method:'POST'};if(ctrl)opts.signal=ctrl.signal;
+    return fetch('http://'+h+'/api/restart',opts)
+      .then(function(r){if(tmr)clearTimeout(tmr);if(r.ok)ok++;else fail++;})
+      .catch(function(){if(tmr)clearTimeout(tmr);fail++;});
+  }));
+  var msg='Restarted '+ok+' of '+others.length+' peer'+(others.length===1?'':'s')+(fail?(' ('+fail+' failed)'):'');
+  pushLog('Fleet restart: '+msg,fail?'warn':'ok');
+  if(self){
+    try{await fetch('/api/restart',{method:'POST'});msg+=' — this device restarting…';}catch(e){}
+  }
+  toast(msg,fail?'warn':'ok');
+  if(btn)btn.disabled=false;
+}
+window.fleetRestartAll=fleetRestartAll;
 
 function pushAlert(type,msg){
   alertLog.unshift({t:nowT(),type:type,msg:msg});
