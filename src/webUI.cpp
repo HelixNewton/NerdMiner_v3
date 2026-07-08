@@ -15,6 +15,7 @@
 #include "drivers/storage/storage.h"
 #include "drivers/storage/nvMemory.h"
 #include "wgManager.h"
+#include "alerts.h"
 #include "version.h"
 #include "timeconst.h"
 
@@ -234,13 +235,15 @@ static void handleApiConfigGet() {
     addCors();
     if (!checkAuth()) return;
 
-    StaticJsonDocument<768> doc;   // 768: room for wallet + WG endpoint/keys
+    StaticJsonDocument<896> doc;   // 896: wallet + WG endpoint/keys + alert URL
     doc["pool_url"]   = Settings.PoolAddress;
     doc["pool_port"]  = Settings.PoolPort;
     doc["wallet"]     = String(Settings.BtcWallet);
     doc["pool_pass"]  = String(Settings.PoolPassword);
     doc["timezone"]   = Settings.Timezone;
     doc["save_stats"] = Settings.saveStats;
+    doc["alert_url"]     = Settings.alertUrl;
+    doc["alert_service"] = Settings.alertService;
 #ifdef ENABLE_WIREGUARD
     // WireGuard — public/endpoint fields are returned; the private key is
     // write-only and never leaves the device, only whether one is set.
@@ -459,7 +462,7 @@ static void handleApiConfigPost() {
         return;
     }
 
-    StaticJsonDocument<1152> doc;  // 1152: pool+wallet plus WG keys/endpoint
+    StaticJsonDocument<1280> doc;  // 1280: pool+wallet, WG keys/endpoint, alert URL
     DeserializationError err = deserializeJson(doc, body);
     if (err) {
         httpServer.send(400, "application/json",
@@ -503,6 +506,18 @@ static void handleApiConfigPost() {
         Settings.Timezone = (int)doc["timezone"];
     if (doc.containsKey("save_stats"))
         Settings.saveStats = (bool)doc["save_stats"];
+
+    // Webhook alerts
+    if (doc.containsKey("alert_url")) {
+        Settings.alertUrl = doc["alert_url"].as<String>();
+        Settings.alertUrl.trim();
+        if (Settings.alertUrl.length() > 200) Settings.alertUrl = "";  // sanity cap
+    }
+    if (doc.containsKey("alert_service")) {
+        String svc = doc["alert_service"].as<String>();
+        if (svc == "discord" || svc == "ntfy" || svc == "json")
+            Settings.alertService = svc;
+    }
 
 #ifdef ENABLE_WIREGUARD
     // WireGuard settings. The private key is write-only: only overwrite it
@@ -690,6 +705,33 @@ static void handlePoolTest() {
     }
 }
 
+// ── POST /api/alert/test — fire a test webhook ─────────────────────────────
+// Optional body {"url":...,"service":...} lets the dashboard test the values
+// currently in the form (before saving); otherwise the saved settings are used.
+static void handleAlertTest() {
+    addCors();
+    if (!checkAuth()) return;
+    String url, svc;
+    String body = httpServer.arg("plain");
+    if (body.length()) {
+        StaticJsonDocument<384> doc;
+        if (!deserializeJson(doc, body)) {
+            url = doc["url"] | "";
+            svc = doc["service"] | "";
+        }
+    }
+    if (url.length() == 0 && Settings.alertUrl.length() == 0) {
+        httpServer.send(400, "application/json",
+            "{\"success\":false,\"error\":\"No webhook URL set\"}");
+        return;
+    }
+    bool ok = alertSendTo(url, svc,
+                          "\xE2\x9C\x85 NerdMiner test alert \xE2\x80\x94 notifications are working.");
+    httpServer.send(ok ? 200 : 502, "application/json",
+        ok ? "{\"success\":true}"
+           : "{\"success\":false,\"error\":\"Webhook POST failed — check URL/service\"}");
+}
+
 // ── 404 handler ────────────────────────────────────────────────────────────
 static void handleNotFound() {
     addCors();
@@ -719,6 +761,7 @@ static void webui_task(void* pvParameters) {
     httpServer.on("/api/restart",   HTTP_POST,    handleApiRestart);
     httpServer.on("/api/reset",     HTTP_POST,    handleApiReset);
     httpServer.on("/api/pool/test", HTTP_GET,     handlePoolTest);
+    httpServer.on("/api/alert/test",HTTP_POST,    handleAlertTest);
     httpServer.on("/api/ota",       HTTP_POST,    handleOtaComplete, handleOtaUpload);
 
     // Catch-all (also handles CORS preflight)
@@ -775,6 +818,7 @@ void webui_init() {
     if (res != pdPASS) {
         Serial.printf("[WEBUI] ERROR: xTaskCreate failed (free heap: %u)\n", esp_get_free_heap_size());
     }
+    alerts_init();   // webhook notifications (inert until a URL is configured)
 }
 
 void webui_notify_share_accepted()  { ev_share_accepted  = true; }

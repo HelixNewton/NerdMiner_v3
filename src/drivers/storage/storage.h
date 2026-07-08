@@ -27,6 +27,9 @@
 #define DEFAULT_WG_PORT		51820
 #define DEFAULT_WG_PUBKEY	""
 #define DEFAULT_WG_PRIVKEY	""
+// Webhook alerts (block found / pool / VPN / online) — off until a URL is set
+#define DEFAULT_ALERT_URL	""
+#define DEFAULT_ALERT_SVC	"discord"
 
 // JSON config files
 #define JSON_CONFIG_FILE	"/config.json"
@@ -49,6 +52,8 @@
 #define JSON_KEY_WG_PORT	"wgPort"
 #define JSON_KEY_WG_PUBKEY	"wgPeerPublicKey"
 #define JSON_KEY_WG_PRIVKEY	"wgPrivateKey"
+#define JSON_KEY_ALERT_URL	"alertUrl"
+#define JSON_KEY_ALERT_SVC	"alertService"
 
 // JSON config file SPIFFS (different for backward compatibility with existing devices)
 #define JSON_SPIFFS_KEY_POOLURL		"poolString"
@@ -80,6 +85,9 @@ struct TSettings
 	int wgPort{ DEFAULT_WG_PORT };
 	String wgPeerPublicKey{ DEFAULT_WG_PUBKEY };
 	String wgPrivateKey{ DEFAULT_WG_PRIVKEY };
+	// Webhook alerts
+	String alertUrl{ DEFAULT_ALERT_URL };
+	String alertService{ DEFAULT_ALERT_SVC };
 };
 
 #endif // _STORAGE_H_

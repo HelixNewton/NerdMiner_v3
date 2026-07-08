@@ -449,6 +449,21 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <div class="fg"><label class="fl">This device&#x2019;s private key <span id="cWgPkState" style="color:var(--mt)"></span></label><input class="fi" id="cWgPriv" type="password" placeholder="base64 private key"></div>
         <div style="font-size:11px;color:var(--mt)">Keys are stored on the miner and used only for the tunnel. The private key is never sent back to the browser; leave it blank to keep the current one. Saving restarts the miner.</div>
       </div>
+      <div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:12px">
+        <div style="font-weight:600;margin-bottom:8px"><i class="ti ti-bell"></i> Alerts &#x2014; webhook notifications</div>
+        <div class="fr2">
+          <div class="fg"><label class="fl">Service</label>
+            <select class="fi" id="cAlSvc">
+              <option value="discord">Discord</option>
+              <option value="ntfy">ntfy</option>
+              <option value="json">Generic (Slack/JSON)</option>
+            </select>
+          </div>
+          <div class="fg" style="display:flex;align-items:flex-end"><button class="btn btn-g" type="button" style="width:100%" onclick="alertTest()">Send test</button></div>
+        </div>
+        <div class="fg"><label class="fl">Webhook URL &#x2014; leave empty to disable</label><input class="fi" id="cAlUrl" type="text" placeholder="https://discord.com/api/webhooks/&#x2026; or https://ntfy.sh/your-topic"></div>
+        <div style="font-size:11px;color:var(--mt)">The miner posts a message when it finds a block, its pool or VPN drops, or it comes online. Sent over plain HTTPS without certificate checks. Use <strong>Send test</strong> to verify before saving.</div>
+      </div>
       <div id="cMsg" style="font-size:12px;color:var(--mt);margin-top:10px"></div>
     </div>
     <div class="md-f">
@@ -1223,6 +1238,8 @@ async function loadCfg(){
     el('cPort').value=d.pool_port||'';el('cPass').value=d.pool_pass||'';
     el('cTz').value=d.timezone||0;el('cSave').checked=!!d.save_stats;
     tz=d.timezone||0;saveStats=!!d.save_stats;
+    el('cAlUrl').value=d.alert_url||'';
+    if(d.alert_service)el('cAlSvc').value=d.alert_service;
     // WireGuard section — only shown when the firmware reports the fields
     if('wg_enabled' in d){
       el('wgSection').style.display='block';
@@ -1239,7 +1256,7 @@ async function loadCfg(){
   }catch(e){}
 }
 async function saveCfg(){
-  var body={wallet:el('cWallet').value.trim(),pool_url:el('cUrl').value.trim(),pool_port:parseInt(el('cPort').value)||21496,pool_pass:el('cPass').value.trim(),timezone:parseInt(el('cTz').value)||0,save_stats:el('cSave').checked};
+  var body={wallet:el('cWallet').value.trim(),pool_url:el('cUrl').value.trim(),pool_port:parseInt(el('cPort').value)||21496,pool_pass:el('cPass').value.trim(),timezone:parseInt(el('cTz').value)||0,save_stats:el('cSave').checked,alert_url:el('cAlUrl').value.trim(),alert_service:el('cAlSvc').value};
   if(!body.wallet){toast('Wallet address required','err');return;}
   if(!body.pool_url){toast('Pool URL required','err');return;}
   // WireGuard fields, only when the section is present (firmware supports it)
@@ -1283,6 +1300,21 @@ async function testPool(){
   catch(e){toast('Test failed: '+e.message,'err');}
 }
 window.testPool=testPool;
+
+// Fire a test webhook using the URL/service currently in the form (no save
+// needed). The device does the actual POST and reports whether it worked.
+async function alertTest(){
+  var url=el('cAlUrl').value.trim();
+  if(!url){toast('Enter a webhook URL first','err');return;}
+  toast('Sending test alert…','ok');
+  try{
+    var r=await api('/api/alert/test',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url:url,service:el('cAlSvc').value})});
+    var d=await r.json();
+    toast(d.success?'Test sent — check your webhook':'Failed: '+(d.error||('HTTP '+r.status)),d.success?'ok':'err');
+  }catch(e){toast('Test failed: '+e.message,'err');}
+}
+window.alertTest=alertTest;
 
 async function startOta(){
   var fi=el('otaFile');
