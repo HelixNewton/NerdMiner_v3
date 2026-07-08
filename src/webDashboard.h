@@ -400,6 +400,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
       <div class="fg"><label class="fl">Pool password</label><input class="fi" id="cPass" type="text" placeholder="x"></div>
       <div class="fg" style="max-width:160px"><label class="fl">Timezone (UTC offset)</label><input class="fi" id="cTz" type="number" min="-12" max="14" placeholder="0"></div>
       <div class="fc"><input type="checkbox" id="cSave"><label for="cSave">Save mining stats to flash (NVS)</label></div>
+      <div class="fg"><label class="fl">API token &#x2014; only for firmware built with <code>WEBUI_AUTH_TOKEN</code>; saved in this browser, never in the miner&#x2019;s config</label><input class="fi" id="cToken" type="password" placeholder="leave empty if unused" onchange="setToken(this.value)"></div>
       <div id="cMsg" style="font-size:12px;color:var(--mt);margin-top:10px"></div>
     </div>
     <div class="md-f">
@@ -572,7 +573,7 @@ function renderDbars(){
 
 async function loadPools(){
   var pools=POOLS_FALLBACK;
-  try{var r=await fetch('/api/pools');if(r.ok){var j=await r.json();if(Array.isArray(j)&&j.length)pools=j;}}catch(e){}
+  try{var r=await api('/api/pools');if(r.ok){var j=await r.json();if(Array.isArray(j)&&j.length)pools=j;}}catch(e){}
   var sel=el('poolSel');if(!sel)return;
   sel.innerHTML='<option value="">— Switch pool —</option>'+pools.map(function(p){
     return '<option value="'+p.host+':'+p.port+'">'+(p.name||p.host)+'</option>';
@@ -591,14 +592,14 @@ async function onPoolSel(v){
   }
   toast('Switching to '+host+'…','warn');
   try{
-    var cfgR=await fetch('/api/config');var cfg=cfgR.ok?await cfgR.json():{};
+    var cfgR=await api('/api/config');var cfg=cfgR.ok?await cfgR.json():{};
     var wallet=((cfg.wallet||lastWallet||'')+'').trim();
     if(!wallet){toast('No wallet set — open Settings first','err');sel.value=activePool||'';return;}
     var body={wallet:wallet,pool_url:host,pool_port:port,
       pool_pass:cfg.pool_pass||'x',
       timezone:(cfg.timezone!=null?cfg.timezone:tz),
       save_stats:!!cfg.save_stats};
-    var r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(d.success){toast('Pool switched — device restarting…','ok');pushLog('Pool switched to '+host+':'+port,'ok');}
     else{toast('Switch failed: '+(d.error||'unknown'),'err');sel.value=activePool||'';}
@@ -616,14 +617,43 @@ function fleetEsc(s){
 // host or host:port — must match the device-side isValidFleetHost()
 function fleetValid(h){return typeof h==='string'&&/^[A-Za-z0-9.\-]+(:\d{1,5})?$/.test(h);}
 
+// ── API token (WEBUI_AUTH_TOKEN builds) ───────────────────────────────────
+// Stored only in this browser, never on the device. One token is assumed
+// across the whole fleet — peers get it on their gated endpoints too.
+var apiToken='';
+try{apiToken=localStorage.getItem('nm_token')||'';}catch(e){}
+var tokenPrompted=false;
+function authHdrs(h){h=h||{};if(apiToken)h['X-API-Token']=apiToken;return h;}
+function setToken(t){
+  t=(t||'').trim();
+  if(t===apiToken)return;
+  apiToken=t;
+  try{t?localStorage.setItem('nm_token',t):localStorage.removeItem('nm_token');}catch(e){}
+  toast(t?'API token saved in this browser':'API token cleared','ok');
+}
+window.setToken=setToken;
+function on401(){
+  if(tokenPrompted)return;
+  tokenPrompted=true;
+  var t=window.prompt('This miner requires an API token (WEBUI_AUTH_TOKEN build).\nEnter it once — it is stored only in this browser:');
+  if(t&&t.trim()){setToken(t);location.reload();}
+  else toast('API token required — set it in Settings','err');
+}
+// fetch wrapper for same-origin API calls: token header + central 401 hook
+function api(url,opts){
+  opts=opts||{};opts.headers=authHdrs(opts.headers);
+  return fetch(url,opts).then(function(r){if(r.status===401)on401();return r;});
+}
+
 // fetch with an abort timeout — shared by every fleet network call
 function fetchT(url,ms,opts){
   var ctrl=('AbortController' in window)?new AbortController():null;
   var o=opts||{};
+  o.headers=authHdrs(o.headers);
   if(ctrl)o.signal=ctrl.signal;
   var tmr=ctrl?setTimeout(function(){ctrl.abort();},ms):null;
   var done=function(){if(tmr)clearTimeout(tmr);};
-  return fetch(url,o).then(function(r){done();return r;},function(e){done();throw e;});
+  return fetch(url,o).then(function(r){done();if(r.status===401)on401();return r;},function(e){done();throw e;});
 }
 function fleetCache(){try{localStorage.setItem('nm_fleet',JSON.stringify(fleet));}catch(e){}}
 
@@ -633,7 +663,7 @@ function fleetCache(){try{localStorage.setItem('nm_fleet',JSON.stringify(fleet))
 var fleetQueue=Promise.resolve();
 function fleetMutate(adds,removes){
   fleetQueue=fleetQueue.then(function(){
-    return fetch('/api/fleet',{method:'POST',headers:{'Content-Type':'application/json'},
+    return api('/api/fleet',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({add:adds||[],remove:removes||[]})})
       .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
       .then(function(d){
@@ -778,7 +808,7 @@ async function fleetScan(){
   // so discovery takes ~3s instead of sweeping 254 addresses from the browser.
   var viaMdns=false;
   try{
-    var r=await fetch('/api/discover');
+    var r=await api('/api/discover');
     if(r.ok){
       var d=await r.json();
       if(Array.isArray(d)&&d.length){
@@ -849,7 +879,7 @@ async function fleetRestartAll(){
   var msg='Restarted '+ok+' of '+others.length+' peer'+(others.length===1?'':'s')+(fail?(' ('+fail+' failed)'):'');
   pushLog('Fleet restart: '+msg,fail?'warn':'ok');
   if(self){
-    try{await fetch('/api/restart',{method:'POST'});msg+=' — this device restarting…';}catch(e){}
+    try{await api('/api/restart',{method:'POST'});msg+=' — this device restarting…';}catch(e){}
   }
   toast(msg,fail?'warn':'ok');
   if(btn)btn.disabled=false;
@@ -879,11 +909,13 @@ function otaUpload(url,file,onProg){
   return new Promise(function(resolve){
     var xhr=new XMLHttpRequest();
     xhr.open('POST',url);
+    if(apiToken)xhr.setRequestHeader('X-API-Token',apiToken);
     xhr.timeout=180000;
     if(xhr.upload)xhr.upload.onprogress=function(e){
       if(e.lengthComputable)onProg(Math.round(e.loaded/e.total*100),e.loaded,e.total);
     };
     xhr.onload=function(){
+      if(xhr.status===401)on401();
       var d=null;try{d=JSON.parse(xhr.responseText);}catch(e){}
       if(xhr.status===200&&d&&d.success)resolve({ok:true});
       else resolve({ok:false,err:String((d&&d.error)||('HTTP '+xhr.status))});
@@ -955,7 +987,7 @@ async function fleetUpdateRun(file){
           if(btn)btn.textContent='Update all';
           return;
         }
-        fetch('/api/status',{cache:'no-store'})
+        api('/api/status',{cache:'no-store'})
           .then(function(r){if(r.ok){clearInterval(t);location.reload();}})
           .catch(function(){});
       },3000);
@@ -1107,16 +1139,17 @@ function applySystem(d){
 }
 
 async function fetchStatus(){
-  try{var r=await fetch('/api/status');if(!r.ok)throw new Error(r.status);applyStatus(await r.json());}
+  try{var r=await api('/api/status');if(!r.ok)throw new Error(r.status);applyStatus(await r.json());}
   catch(e){var b=el('connBadge');if(b)b.className='badge b-err';set('connTxt','Offline');}
 }
 async function fetchSystem(){
-  try{var r=await fetch('/api/system');if(!r.ok)return;applySystem(await r.json());}catch(e){}
+  try{var r=await api('/api/system');if(!r.ok)return;applySystem(await r.json());}catch(e){}
 }
 
 async function loadCfg(){
+  el('cToken').value=apiToken; // prefill even when the config fetch 401s
   try{
-    var r=await fetch('/api/config');if(!r.ok)return;
+    var r=await api('/api/config');if(!r.ok)return;
     var d=await r.json();
     el('cWallet').value=d.wallet||'';el('cUrl').value=d.pool_url||'';
     el('cPort').value=d.pool_port||'';el('cPass').value=d.pool_pass||'';
@@ -1130,7 +1163,7 @@ async function saveCfg(){
   if(!body.pool_url){toast('Pool URL required','err');return;}
   set('cMsg','Saving...');
   try{
-    var r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(d.success){toast('Saved -- restarting...','ok');set('cMsg','Saved. Device restarting...');}
     else{toast('Error: '+(d.error||'unknown'),'err');set('cMsg','Error: '+(d.error||''));}
@@ -1140,20 +1173,20 @@ window.saveCfg=saveCfg;
 
 async function restartDevice(){
   if(!confirm('Restart the miner now?'))return;
-  try{await fetch('/api/restart',{method:'POST'});toast('Restarting...','warn');}catch(e){toast('Restart sent','warn');}
+  try{await api('/api/restart',{method:'POST'});toast('Restarting...','warn');}catch(e){toast('Restart sent','warn');}
 }
 window.restartDevice=restartDevice;
 
 async function factoryReset(){
   if(!confirm('Factory reset will erase ALL settings. Are you sure?'))return;
   if(!confirm('This cannot be undone. Confirm?'))return;
-  try{await fetch('/api/reset',{method:'POST'});toast('Factory reset -- restarting...','warn');}catch(e){toast('Reset sent','warn');}
+  try{await api('/api/reset',{method:'POST'});toast('Factory reset -- restarting...','warn');}catch(e){toast('Reset sent','warn');}
 }
 window.factoryReset=factoryReset;
 
 async function testPool(){
   toast('Testing connection...','ok');
-  try{var r=await fetch('/api/pool/test');var d=await r.json();toast(d.success?'Pool reachable':'Pool unreachable: '+d.message,d.success?'ok':'err');}
+  try{var r=await api('/api/pool/test');var d=await r.json();toast(d.success?'Pool reachable':'Pool unreachable: '+d.message,d.success?'ok':'err');}
   catch(e){toast('Test failed: '+e.message,'err');}
 }
 window.testPool=testPool;

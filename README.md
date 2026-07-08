@@ -27,7 +27,7 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 - **Config panel** — update wallet address, pool URL/port, and timezone directly from the browser
 - **OTA firmware update** — drag-and-drop `.bin` upload with progress bar; no USB cable needed
 - **Restart / Factory Reset** — one-click buttons with confirmation dialogs
-- **Optional API token auth** — protect the dashboard behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags)
+- **Optional API token auth** — protect the API behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags). The dashboard prompts for the token on first use and remembers it per-browser (Settings → API token); one token works across the whole fleet, including fleet-wide restart and OTA
 - **Mobile-friendly** — responsive dark UI, works on any browser
 
 The **Fleet** view aggregates every miner on your network in one place — add them manually or hit **Scan LAN** to auto-discover them:
