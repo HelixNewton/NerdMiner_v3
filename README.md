@@ -103,9 +103,16 @@ chmod +x flash.sh && ./flash.sh
 flash.bat
 ```
 
-Both scripts auto-detect your serial port and let you choose your board from a menu.
+Both scripts auto-detect your serial port and let you choose your board from a menu, then offer two methods:
 
-The scripts offer two methods: **build from source** (needs PlatformIO) or **flash pre-built `.bin` files** (needs only esptool). The pre-built bins include the web dashboard; if you flash them and the miner runs but `http://<device-ip>/` never loads, you're on an old copy — pull the latest, or build from source. Maintainers refresh the pre-built bins with `./bin/regenerate_prebuilt.sh` after any firmware change.
+1. **Build from source** — needs [PlatformIO](https://platformio.org/); always current, and the only way to enable the [WireGuard VPN](#wireguard-vpn) opt-in.
+2. **Flash pre-built `.bin` files** — needs only `esptool`, no toolchain. Pre-built images ship for **every board in the menu** under `bin/prebuilt/<env>/`.
+
+The web-dashboard boards' pre-built images include the dashboard. If you flash a pre-built image and the miner runs but `http://<device-ip>/` never loads, you're likely on an outdated checkout — `git pull` and re-flash, or build from source.
+
+> **Maintainers:** after any firmware change, refresh the pre-built bins with `./bin/regenerate_prebuilt.sh` (rebuilds every board, copies the four bins per env, and fails if a dashboard board's image is missing the web UI). Regenerate a single board with `./bin/regenerate_prebuilt.sh <env>`.
+
+> **Already configured a device?** A firmware flash keeps saved Wi-Fi, so the `NerdMinerAP` portal won't reappear. To reconfigure from scratch, erase first: `pio run -e <env> --target erase --upload-port <port>` (or `esptool --port <port> erase_flash`), then flash.
 
 ---
 
