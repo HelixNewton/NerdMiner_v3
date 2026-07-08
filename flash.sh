@@ -152,14 +152,23 @@ flash_esptool() {
     0x10000  "$fw"
 }
 
+# Envs that ship the web dashboard (ENABLE_WEBUI) and carry the WireGuard lib,
+# so the VPN can be toggled on for them. Keep in sync with platformio.ini.
+WEBUI_ENVS=" NerdminerV2 ESP32-S3-devKitv1 esp32-s3-devkitc1-n32r8 ESP32-devKitv1 NerdminerV2-S3-AMOLED NerdminerV2-T-HMI "
+
+env_supports_vpn() { [[ "$WEBUI_ENVS" == *" $1 "* ]]; }
+
 # ── Build & flash with PlatformIO ─────────────────────────────────────────────
+# $3 (optional) = extra -D build flags to inject (e.g. WireGuard)
 flash_pio() {
-  local env="$1" port="$2"
+  local env="$1" port="$2" extra_flags="${3:-}"
   local upload_flag=""
   [[ -n "$port" ]] && upload_flag="--upload-port $port"
 
+  # PLATFORMIO_BUILD_FLAGS is appended to the env's build_flags for this run
+  # only — nothing in platformio.ini changes.
   # shellcheck disable=SC2086
-  pio run -e "$env" --target upload $upload_flag
+  PLATFORMIO_BUILD_FLAGS="$extra_flags" pio run -e "$env" --target upload $upload_flag
 }
 
 # ── Check dependencies ────────────────────────────────────────────────────────
@@ -226,6 +235,25 @@ info "Env    : $PIO_ENV"
 info "Chip   : $CHIP"
 info "Baud   : $BAUD"
 
+# ── Optional: WireGuard VPN ────────────────────────────────────────────────────
+# Only offered for envs with the dashboard + WireGuard lib, and only when
+# building from source (pre-built bins can't be reconfigured).
+WG_FLAGS=""
+if [[ "$METHOD" == "1" ]] && env_supports_vpn "$PIO_ENV"; then
+  hdr "WireGuard VPN (optional):"
+  echo "  Full-tunnel VPN client — reach this miner remotely and encrypt its"
+  echo "  pool traffic. Configure the keys later in the dashboard Settings."
+  echo -e "  ${YEL}Note:${RST} also build with an API token (WEBUI_AUTH_TOKEN) for a VPN unit."
+  echo
+  read -rp "Enable WireGuard VPN in this build? [y/N]: " WG_ANS
+  if [[ "$WG_ANS" =~ ^[Yy] ]]; then
+    WG_FLAGS="-DENABLE_WIREGUARD=1"
+    ok "WireGuard VPN: enabled"
+  else
+    info "WireGuard VPN: disabled"
+  fi
+fi
+
 # ── Port selection ────────────────────────────────────────────────────────────
 hdr "Serial port:"
 pick_port
@@ -243,7 +271,7 @@ echo
 if [[ "$METHOD" == "1" ]]; then
   # ── PlatformIO build + flash ─────────────────────────────────────────────
   hdr "Building and flashing with PlatformIO..."
-  flash_pio "$PIO_ENV" "$PORT"
+  flash_pio "$PIO_ENV" "$PORT" "$WG_FLAGS"
 
 else
   # ── esptool pre-built bins ───────────────────────────────────────────────
@@ -262,7 +290,7 @@ else
       USE_PIO="${USE_PIO:-Y}"
       if [[ "$USE_PIO" =~ ^[Yy] ]]; then
         hdr "Building and flashing with PlatformIO..."
-        flash_pio "$PIO_ENV" "$PORT"
+        flash_pio "$PIO_ENV" "$PORT" "$WG_FLAGS"
       else
         echo "Aborted."
         exit 0

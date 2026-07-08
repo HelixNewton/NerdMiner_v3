@@ -107,6 +107,29 @@ if not defined ENV (
   pause & exit /b 1
 )
 
+:: ── Optional: WireGuard VPN ────────────────────────────────────────────────────
+:: Only for envs with the dashboard + WireGuard lib, and only build-from-source.
+set WG_FLAGS=
+set VPN_OK=0
+if "%ENV%"=="NerdminerV2"           set VPN_OK=1
+if "%ENV%"=="NerdminerV2-T-HMI"     set VPN_OK=1
+if "%ENV%"=="NerdminerV2-S3-AMOLED" set VPN_OK=1
+if "%ENV%"=="ESP32-devKitv1"        set VPN_OK=1
+if "%ENV%"=="ESP32-S3-devKitv1"     set VPN_OK=1
+if "%METHOD%"=="1" if "%VPN_OK%"=="1" (
+  echo.
+  echo %YEL%WireGuard VPN ^(optional^):%RST% full-tunnel VPN — reach this miner
+  echo   remotely and encrypt pool traffic. Configure the keys later in Settings.
+  echo   Note: also build with an API token ^(WEBUI_AUTH_TOKEN^) for a VPN unit.
+  set /p WG_ANS="Enable WireGuard VPN in this build? [y/N]: "
+  if /i "!WG_ANS!"=="y" (
+    set "WG_FLAGS=-DENABLE_WIREGUARD=1"
+    echo %GRN%WireGuard VPN: enabled%RST%
+  ) else (
+    echo WireGuard VPN: disabled
+  )
+)
+
 :: ── Serial port ───────────────────────────────────────────────────────────────
 echo.
 echo %YEL%Available COM ports:%RST%
@@ -134,7 +157,10 @@ goto :flash_esptool
 
 :flash_pio
 echo %CYN%Building and flashing with PlatformIO...%RST%
+:: PLATFORMIO_BUILD_FLAGS is appended to build_flags for this run only.
+set "PLATFORMIO_BUILD_FLAGS=%WG_FLAGS%"
 pio run -e %ENV% --target upload --upload-port %PORT%
+set "PLATFORMIO_BUILD_FLAGS="
 goto :done
 
 :flash_esptool

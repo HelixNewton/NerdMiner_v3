@@ -69,7 +69,7 @@ A miner can join a [WireGuard](https://www.wireguard.com/) VPN as a full-tunnel 
 - **Remote access** — reach the dashboard/API at the miner's tunnel IP from anywhere, with no port-forwarding on your home router (the miner dials *out* to your WireGuard server).
 - **Encrypted pool traffic** — the miner's default route moves into the tunnel, so the stratum connection leaves your network through the VPN. LAN traffic (the dashboard, fleet polling to other miners on the same subnet) stays direct, so remote *and* local access both keep working.
 
-**Enable it at build time** (it's opt-in so boards that don't need it don't pay the ~31 KB of crypto): the `NerdminerV2` env already sets `-D ENABLE_WIREGUARD=1` and pulls in `felipedadison/WireGuard-ESP32`. Add both to any other env you want it on.
+**Enable it at build time** (it's opt-in so boards that don't need it don't pay the ~31 KB of crypto). The easiest way is `flash.sh` / `flash.bat`: pick a dashboard-capable board and answer **"Enable WireGuard VPN?"** — the script injects `-D ENABLE_WIREGUARD=1` for that build only. It's offered for the web-UI envs (`NerdminerV2`, `ESP32-S3-devKitv1`, `esp32-s3-devkitc1-n32r8`, `ESP32-devKitv1`, `NerdminerV2-S3-AMOLED`, `NerdminerV2-T-HMI`), which already carry the `felipedadison/WireGuard-ESP32` lib. To build it directly instead, add `-D ENABLE_WIREGUARD=1` to that env's `build_flags` (or run `PLATFORMIO_BUILD_FLAGS="-DENABLE_WIREGUARD=1" pio run -e <env>`). For any other board, also add the lib to its `lib_deps`.
 
 **Configure it** in the dashboard under **Settings → WireGuard VPN**:
 
