@@ -27,8 +27,9 @@ bool nvMemory::saveConfig(TSettings* Settings)
         // Save Config in JSON format
         Serial.println(F("SPIFS: Saving configuration."));
 
-        // Create a JSON document
-        StaticJsonDocument<512> json;
+        // Create a JSON document (1024: WireGuard adds two 44-char base64 keys
+        // plus an endpoint/IP that would overflow the old 512-byte pool)
+        StaticJsonDocument<1024> json;
         json[JSON_SPIFFS_KEY_POOLURL] = Settings->PoolAddress;
         json[JSON_SPIFFS_KEY_POOLPORT] = Settings->PoolPort;
         json[JSON_SPIFFS_KEY_POOLPASS] = Settings->PoolPassword;
@@ -37,6 +38,12 @@ bool nvMemory::saveConfig(TSettings* Settings)
         json[JSON_SPIFFS_KEY_STATS2NV] = Settings->saveStats;
         json[JSON_SPIFFS_KEY_INVCOLOR] = Settings->invertColors;
         json[JSON_SPIFFS_KEY_BRIGHTNESS] = Settings->Brightness;
+        json[JSON_KEY_WG_ENABLED] = Settings->wgEnabled;
+        json[JSON_KEY_WG_LOCALIP] = Settings->wgLocalIP;
+        json[JSON_KEY_WG_ENDPOINT] = Settings->wgEndpoint;
+        json[JSON_KEY_WG_PORT] = Settings->wgPort;
+        json[JSON_KEY_WG_PUBKEY] = Settings->wgPeerPublicKey;
+        json[JSON_KEY_WG_PRIVKEY] = Settings->wgPrivateKey;
 
         // Open config file
         File configFile = SPIFFS.open(JSON_CONFIG_FILE, "w");
@@ -47,9 +54,12 @@ bool nvMemory::saveConfig(TSettings* Settings)
             return false;
         }
 
+        // Non-secret confirmation only — never dump the raw config to serial:
+        // it holds the pool password and the WireGuard private key.
+        Serial.printf("SPIFS: pool=%s:%d wallet=%.10s… wg=%s\n",
+                      Settings->PoolAddress.c_str(), Settings->PoolPort,
+                      Settings->BtcWallet, Settings->wgEnabled ? "on" : "off");
         // Serialize JSON data to write to file
-        serializeJsonPretty(json, Serial);
-        Serial.print('\n');
         if (serializeJson(json, configFile) == 0)
         {
             // Error writing file
@@ -83,11 +93,11 @@ bool nvMemory::loadConfig(TSettings* Settings)
             if (configFile)
             {
                 Serial.println("SPIFS: Loading config file");
-                StaticJsonDocument<512> json;
+                StaticJsonDocument<1024> json;
                 DeserializationError error = deserializeJson(json, configFile);
                 configFile.close();
-                serializeJsonPretty(json, Serial);
-                Serial.print('\n');
+                // Do not dump the raw config to serial — it contains the pool
+                // password and the WireGuard private key.
                 if (!error)
                 {
                     Settings->PoolAddress = json[JSON_SPIFFS_KEY_POOLURL] | Settings->PoolAddress;
@@ -109,6 +119,15 @@ bool nvMemory::loadConfig(TSettings* Settings)
                     } else {
                         Settings->Brightness = 250;
                     }
+                    // WireGuard — absent keys leave the struct defaults intact
+                    if (json.containsKey(JSON_KEY_WG_ENABLED))
+                        Settings->wgEnabled = json[JSON_KEY_WG_ENABLED].as<bool>();
+                    Settings->wgLocalIP = json[JSON_KEY_WG_LOCALIP] | Settings->wgLocalIP;
+                    Settings->wgEndpoint = json[JSON_KEY_WG_ENDPOINT] | Settings->wgEndpoint;
+                    if (json.containsKey(JSON_KEY_WG_PORT))
+                        Settings->wgPort = json[JSON_KEY_WG_PORT].as<int>();
+                    Settings->wgPeerPublicKey = json[JSON_KEY_WG_PUBKEY] | Settings->wgPeerPublicKey;
+                    Settings->wgPrivateKey = json[JSON_KEY_WG_PRIVKEY] | Settings->wgPrivateKey;
                     return true;
                 }
                 else

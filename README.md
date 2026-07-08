@@ -28,6 +28,7 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 - **OTA firmware update** — drag-and-drop `.bin` upload with progress bar; no USB cable needed
 - **Restart / Factory Reset** — one-click buttons with confirmation dialogs
 - **Optional API token auth** — protect the API behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags). The dashboard prompts for the token on first use and remembers it per-browser (Settings → API token); one token works across the whole fleet, including fleet-wide restart and OTA
+- **WireGuard VPN** *(opt-in build)* — a full-tunnel WireGuard client so a miner behind NAT is reachable at its tunnel IP and its pool traffic is encrypted end-to-end. Configure the tunnel IP, server endpoint, and keys in Settings; a VPN badge shows tunnel state. See [WireGuard VPN](#wireguard-vpn) below
 - **Mobile-friendly** — responsive dark UI, works on any browser
 
 The **Fleet** view aggregates every miner on your network in one place — add them manually or hit **Scan LAN** to auto-discover them:
@@ -60,6 +61,33 @@ The **Fleet** view aggregates every miner on your network in one place — add t
 > **Fleet polling:** the Fleet view fetches each miner's `/api/status` directly from your browser (CORS is enabled), so all miners must be on the same network you're browsing from. The miner list is persisted on the device itself (`/api/fleet`), so every browser that opens a miner's dashboard sees the same fleet; `localStorage` is only used as a local cache for instant paint.
 
 > **OTA partition requirement:** `/api/ota` (and the Fleet **Update all** button) needs a partition table with two app slots. The `NerdminerV2` (ESP32-S3, 8MB) environment now uses `default_8MB.csv`, which has them. Boards still on `huge_app.csv` have a single app slot — the device detects this and **refuses** the update (`/api/status` reports `"ota": false`, the dashboard hides the option, and **Update all** skips those miners); opt in with `board_build.partitions = partitions/nerdminer_ota_4MB.csv` (check your `.bin` is under 1984 KB). **Update all** also skips miners whose chip family (`"chip"` in `/api/status`) differs from the device you're pushing from — one `.bin` only fits one chip. Switching tables relocates SPIFFS, so the **first** flash with a new table must go over USB and re-provisions WiFi/pool settings — OTA works from then on.
+
+### WireGuard VPN
+
+A miner can join a [WireGuard](https://www.wireguard.com/) VPN as a full-tunnel client. Two things this buys you:
+
+- **Remote access** — reach the dashboard/API at the miner's tunnel IP from anywhere, with no port-forwarding on your home router (the miner dials *out* to your WireGuard server).
+- **Encrypted pool traffic** — the miner's default route moves into the tunnel, so the stratum connection leaves your network through the VPN. LAN traffic (the dashboard, fleet polling to other miners on the same subnet) stays direct, so remote *and* local access both keep working.
+
+**Enable it at build time** (it's opt-in so boards that don't need it don't pay the ~31 KB of crypto): the `NerdminerV2` env already sets `-D ENABLE_WIREGUARD=1` and pulls in `felipedadison/WireGuard-ESP32`. Add both to any other env you want it on.
+
+**Configure it** in the dashboard under **Settings → WireGuard VPN**:
+
+| Field | Example | Notes |
+|-------|---------|-------|
+| Tunnel IP (this device) | `10.6.0.2` | the address your WG server assigns this peer |
+| Server endpoint | `vpn.example.com` | host or IP of your WG server (resolved via DNS) |
+| Endpoint port | `51820` | |
+| Server public key | `base64…` | your WG server's public key |
+| This device's private key | `base64…` | stored on the miner; **never** returned by the API — leave blank when editing to keep the current one |
+
+Generate a keypair with `wg genkey | tee privatekey | wg pubkey > publickey`; put the **private** key on the miner and add the miner's **public** key (with `AllowedIPs = 10.6.0.2/32`) as a `[Peer]` on your server. Saving restarts the miner; a **VPN** badge in the header shows tunnel state (green = up). The tunnel needs the clock set, which the miner does from NTP before bringing WireGuard up.
+
+> **Security:** the private key lives in the miner's `config.json` (SPIFFS) and is used only for the tunnel — it is write-only over the API (never sent back to a browser) and is never printed to the serial console. Two limitations to understand:
+> - **Build with `WEBUI_AUTH_TOKEN`.** Without a token, `checkAuth()` allows everyone, so any device on your LAN can `POST /api/config` a new endpoint + private key and, after the automatic restart, redirect the miner's full tunnel through *their* server. On a VPN build the token is not optional.
+> - **No TLS.** The ESP32 serves plain HTTP, so the private key travels the LAN in cleartext when you first paste it into Settings. Provision over a trusted network segment.
+>
+> **Downgrading:** once a tunnel is configured, `config.json` grows by the two keys + endpoint. Firmware from *before* this feature reads config with a smaller JSON buffer and may fail to parse the larger file, dropping into WiFi provisioning. If you roll back, expect to re-enter wallet/pool settings once.
 
 ### Flash Scripts
 

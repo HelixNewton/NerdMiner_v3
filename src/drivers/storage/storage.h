@@ -20,6 +20,13 @@
 #define DEFAULT_SAVESTATS	false
 #define DEFAULT_INVERTCOLORS	false
 #define DEFAULT_BRIGHTNESS	250
+// WireGuard VPN (full-tunnel client) — all empty/disabled by default
+#define DEFAULT_WG_ENABLED	false
+#define DEFAULT_WG_LOCALIP	""
+#define DEFAULT_WG_ENDPOINT	""
+#define DEFAULT_WG_PORT		51820
+#define DEFAULT_WG_PUBKEY	""
+#define DEFAULT_WG_PRIVKEY	""
 
 // JSON config files
 #define JSON_CONFIG_FILE	"/config.json"
@@ -36,6 +43,12 @@
 #define JSON_KEY_STATS2NV	"SaveStats"
 #define JSON_KEY_INVCOLOR	"invertColors"
 #define JSON_KEY_BRIGHTNESS	"Brightness"
+#define JSON_KEY_WG_ENABLED	"wgEnabled"
+#define JSON_KEY_WG_LOCALIP	"wgLocalIP"
+#define JSON_KEY_WG_ENDPOINT	"wgEndpoint"
+#define JSON_KEY_WG_PORT	"wgPort"
+#define JSON_KEY_WG_PUBKEY	"wgPeerPublicKey"
+#define JSON_KEY_WG_PRIVKEY	"wgPrivateKey"
 
 // JSON config file SPIFFS (different for backward compatibility with existing devices)
 #define JSON_SPIFFS_KEY_POOLURL		"poolString"
@@ -60,6 +73,13 @@ struct TSettings
 	bool saveStats{ DEFAULT_SAVESTATS };
 	bool invertColors{ DEFAULT_INVERTCOLORS };
 	int Brightness{ DEFAULT_BRIGHTNESS };
+	// WireGuard VPN — a WireGuard base64 key is 44 chars; IPs/hostnames short
+	bool wgEnabled{ DEFAULT_WG_ENABLED };
+	String wgLocalIP{ DEFAULT_WG_LOCALIP };
+	String wgEndpoint{ DEFAULT_WG_ENDPOINT };
+	int wgPort{ DEFAULT_WG_PORT };
+	String wgPeerPublicKey{ DEFAULT_WG_PUBKEY };
+	String wgPrivateKey{ DEFAULT_WG_PRIVKEY };
 };
 
 #endif // _STORAGE_H_

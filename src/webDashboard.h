@@ -204,6 +204,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
     <span class="tb-s" id="tbSub">Live mining monitor</span>
     <div class="tb-sp"></div>
     <span class="badge b-ok" id="connBadge"><span class="bdot"></span><span id="connTxt">Connecting</span></span>
+    <span class="badge b-ver" id="vpnBadge" title="WireGuard VPN tunnel" style="display:none"><i class="ti ti-shield-lock"></i> VPN</span>
     <span class="badge b-ver" id="verBadge">v&#x2014;</span>
     <select class="pool-sel" id="poolSel" title="Switch this miner to another pool" onchange="onPoolSel(this.value)">
       <option value="">&#x2014; Switch pool &#x2014;</option>
@@ -401,6 +402,17 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
       <div class="fg" style="max-width:160px"><label class="fl">Timezone (UTC offset)</label><input class="fi" id="cTz" type="number" min="-12" max="14" placeholder="0"></div>
       <div class="fc"><input type="checkbox" id="cSave"><label for="cSave">Save mining stats to flash (NVS)</label></div>
       <div class="fg"><label class="fl">API token &#x2014; only for firmware built with <code>WEBUI_AUTH_TOKEN</code>; saved in this browser, never in the miner&#x2019;s config</label><input class="fi" id="cToken" type="password" placeholder="leave empty if unused" onchange="setToken(this.value)"></div>
+      <div id="wgSection" style="display:none;border-top:1px solid var(--bd);margin-top:14px;padding-top:12px">
+        <div class="fc"><input type="checkbox" id="cWgEn"><label for="cWgEn"><strong>WireGuard VPN</strong> &#x2014; full-tunnel (pool traffic + remote dashboard access)</label></div>
+        <div class="fr2">
+          <div class="fg"><label class="fl">Tunnel IP (this device)</label><input class="fi" id="cWgIp" type="text" placeholder="10.6.0.2"></div>
+          <div class="fg"><label class="fl">Endpoint port</label><input class="fi" id="cWgPort" type="number" min="1" max="65535" placeholder="51820"></div>
+        </div>
+        <div class="fg"><label class="fl">Server endpoint (host or IP)</label><input class="fi" id="cWgEp" type="text" placeholder="vpn.example.com"></div>
+        <div class="fg"><label class="fl">Server public key</label><input class="fi" id="cWgPub" type="text" placeholder="base64 peer public key"></div>
+        <div class="fg"><label class="fl">This device&#x2019;s private key <span id="cWgPkState" style="color:var(--mt)"></span></label><input class="fi" id="cWgPriv" type="password" placeholder="base64 private key"></div>
+        <div style="font-size:11px;color:var(--mt)">Keys are stored on the miner and used only for the tunnel. The private key is never sent back to the browser; leave it blank to keep the current one. Saving restarts the miner.</div>
+      </div>
       <div id="cMsg" style="font-size:12px;color:var(--mt);margin-top:10px"></div>
     </div>
     <div class="md-f">
@@ -1078,6 +1090,12 @@ function applyStatus(d){
   prevConn=ok;
   var hd=el('healthDot');if(hd)hd.style.background=ok?'var(--grn)':'var(--red)';
   set('healthTxt',ok?'Healthy':'Degraded');
+  // VPN badge: green when the tunnel is up, muted when enabled-but-down
+  var vb=el('vpnBadge');
+  if(vb){
+    if(d.wg_enabled){vb.style.display='';vb.className='badge '+(d.wg_connected?'b-ok':'b-err');vb.title='WireGuard VPN '+(d.wg_connected?'tunnel up':'enabled — connecting');}
+    else vb.style.display='none';
+  }
   var pu=d.pool_url||'';
   set('ppName',pu||'--');
   set('ppUrl',pu+(d.pool_port?':'+d.pool_port:''));
@@ -1155,12 +1173,37 @@ async function loadCfg(){
     el('cPort').value=d.pool_port||'';el('cPass').value=d.pool_pass||'';
     el('cTz').value=d.timezone||0;el('cSave').checked=!!d.save_stats;
     tz=d.timezone||0;saveStats=!!d.save_stats;
+    // WireGuard section — only shown when the firmware reports the fields
+    if('wg_enabled' in d){
+      el('wgSection').style.display='block';
+      el('cWgEn').checked=!!d.wg_enabled;
+      el('cWgIp').value=d.wg_local_ip||'';
+      el('cWgEp').value=d.wg_endpoint||'';
+      el('cWgPort').value=d.wg_port||51820;
+      el('cWgPub').value=d.wg_peer_public_key||'';
+      el('cWgPriv').value='';
+      set('cWgPkState',d.wg_has_privkey?'(one is set — blank keeps it)':'(none set yet)');
+    }else{
+      el('wgSection').style.display='none';
+    }
   }catch(e){}
 }
 async function saveCfg(){
   var body={wallet:el('cWallet').value.trim(),pool_url:el('cUrl').value.trim(),pool_port:parseInt(el('cPort').value)||21496,pool_pass:el('cPass').value.trim(),timezone:parseInt(el('cTz').value)||0,save_stats:el('cSave').checked};
   if(!body.wallet){toast('Wallet address required','err');return;}
   if(!body.pool_url){toast('Pool URL required','err');return;}
+  // WireGuard fields, only when the section is present (firmware supports it)
+  if(el('wgSection').style.display!=='none'){
+    var wgEn=el('cWgEn').checked;
+    var wgIp=el('cWgIp').value.trim(),wgEp=el('cWgEp').value.trim(),wgPub=el('cWgPub').value.trim(),wgPriv=el('cWgPriv').value.trim();
+    if(wgEn&&(!wgIp||!wgEp||!wgPub)){toast('VPN needs tunnel IP, endpoint and server public key','err');return;}
+    if(wgEn&&!/^\d+\.\d+\.\d+\.\d+$/.test(wgIp)){toast('Tunnel IP must be an IPv4 address','err');return;}
+    body.wg_enabled=wgEn;
+    body.wg_local_ip=wgIp;body.wg_endpoint=wgEp;
+    body.wg_port=parseInt(el('cWgPort').value)||51820;
+    body.wg_peer_public_key=wgPub;
+    if(wgPriv)body.wg_private_key=wgPriv; // blank = keep existing key
+  }
   set('cMsg','Saving...');
   try{
     var r=await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});

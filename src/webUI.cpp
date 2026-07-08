@@ -14,6 +14,7 @@
 #include "monitor.h"
 #include "drivers/storage/storage.h"
 #include "drivers/storage/nvMemory.h"
+#include "wgManager.h"
 #include "version.h"
 #include "timeconst.h"
 
@@ -129,7 +130,7 @@ static void handleApiStatus() {
     bool     sub = getMinerSubscribed();
     bool     wok = (WiFi.status() == WL_CONNECTED);
 
-    StaticJsonDocument<768> doc;
+    StaticJsonDocument<896> doc;
     doc["hashrate_khs"]  = elk;
     doc["total_mhashes"] = mh;
     doc["shares"]        = sh;
@@ -156,6 +157,10 @@ static void handleApiStatus() {
     doc["build"]         = BUILD_VERSION;
     doc["chip"]          = ESP.getChipModel();
     doc["ota"]           = otaCapable();
+#ifdef ENABLE_WIREGUARD
+    doc["wg_enabled"]    = wgIsEnabled();
+    doc["wg_connected"]  = wgIsActive();
+#endif
 
     // Device hostname: "NerdMiner-" + last 4 hex of MAC
     uint8_t mac[6]; WiFi.macAddress(mac);
@@ -229,13 +234,25 @@ static void handleApiConfigGet() {
     addCors();
     if (!checkAuth()) return;
 
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<768> doc;   // 768: room for wallet + WG endpoint/keys
     doc["pool_url"]   = Settings.PoolAddress;
     doc["pool_port"]  = Settings.PoolPort;
     doc["wallet"]     = String(Settings.BtcWallet);
     doc["pool_pass"]  = String(Settings.PoolPassword);
     doc["timezone"]   = Settings.Timezone;
     doc["save_stats"] = Settings.saveStats;
+#ifdef ENABLE_WIREGUARD
+    // WireGuard — public/endpoint fields are returned; the private key is
+    // write-only and never leaves the device, only whether one is set.
+    // Guarded so non-WG builds don't advertise a VPN section the dashboard
+    // would otherwise render (it keys off wg_enabled being present).
+    doc["wg_enabled"]         = Settings.wgEnabled;
+    doc["wg_local_ip"]        = Settings.wgLocalIP;
+    doc["wg_endpoint"]        = Settings.wgEndpoint;
+    doc["wg_port"]            = Settings.wgPort;
+    doc["wg_peer_public_key"] = Settings.wgPeerPublicKey;
+    doc["wg_has_privkey"]     = (Settings.wgPrivateKey.length() > 0);
+#endif
 
     String out;
     serializeJson(doc, out);
@@ -442,7 +459,7 @@ static void handleApiConfigPost() {
         return;
     }
 
-    StaticJsonDocument<384> doc;
+    StaticJsonDocument<1152> doc;  // 1152: pool+wallet plus WG keys/endpoint
     DeserializationError err = deserializeJson(doc, body);
     if (err) {
         httpServer.send(400, "application/json",
@@ -486,6 +503,42 @@ static void handleApiConfigPost() {
         Settings.Timezone = (int)doc["timezone"];
     if (doc.containsKey("save_stats"))
         Settings.saveStats = (bool)doc["save_stats"];
+
+#ifdef ENABLE_WIREGUARD
+    // WireGuard settings. The private key is write-only: only overwrite it
+    // when a non-empty value is supplied, so re-saving other fields with the
+    // key box left blank keeps the stored key. Guarded so non-WG builds never
+    // persist a key they can't use.
+    if (doc.containsKey("wg_enabled"))
+        Settings.wgEnabled = (bool)doc["wg_enabled"];
+    if (doc.containsKey("wg_local_ip")) {
+        Settings.wgLocalIP = doc["wg_local_ip"].as<String>();
+        Settings.wgLocalIP.trim();
+    }
+    if (doc.containsKey("wg_endpoint")) {
+        String ep = doc["wg_endpoint"].as<String>();
+        ep.trim();
+        if (ep.length() > 128) {
+            httpServer.send(400, "application/json",
+                "{\"success\":false,\"error\":\"VPN endpoint too long\"}");
+            return;
+        }
+        Settings.wgEndpoint = ep;
+    }
+    if (doc.containsKey("wg_port"))
+        Settings.wgPort = (int)doc["wg_port"];
+    if (doc.containsKey("wg_peer_public_key")) {
+        Settings.wgPeerPublicKey = doc["wg_peer_public_key"].as<String>();
+        Settings.wgPeerPublicKey.trim();
+    }
+    if (doc.containsKey("wg_private_key")) {
+        String pk = doc["wg_private_key"].as<String>();
+        pk.trim();
+        if (pk.length() > 0) Settings.wgPrivateKey = pk;
+    }
+    if (Settings.wgPort < 1 || Settings.wgPort > 65535)
+        Settings.wgPort = DEFAULT_WG_PORT;
+#endif
 
     // Clamp port
     if (Settings.PoolPort < 1 || Settings.PoolPort > 65535)
@@ -685,7 +738,8 @@ static void webui_task(void* pvParameters) {
 
     while (true) {
         bool wifiNow = (WiFi.status() == WL_CONNECTED);
-        if (wifiNow && !wifiWasConnected) {
+        bool wifiJustUp = (wifiNow && !wifiWasConnected);
+        if (wifiJustUp) {
             uint8_t mac[6]; WiFi.macAddress(mac);
             char host[24];
             snprintf(host, sizeof(host), "nerdminer-%02x%02x", mac[4], mac[5]);
@@ -698,6 +752,9 @@ static void webui_task(void* pvParameters) {
                 Serial.println("[WEBUI] mDNS start failed");
             }
         }
+#ifdef ENABLE_WIREGUARD
+        wgManagerTick(wifiNow, wifiJustUp);
+#endif
         wifiWasConnected = wifiNow;
         httpServer.handleClient();
         vTaskDelay(10 / portTICK_PERIOD_MS);
