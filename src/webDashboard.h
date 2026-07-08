@@ -17,6 +17,31 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawdash(<!DOCTYPE html>
   --blu:#60a5fa;--tel:#2dd4bf;--pur:#a78bfa;
   --sw:200px;
 }
+/* ── Themes: each overrides the token palette; a couple add a signature ── */
+:root[data-theme="matrix"]{
+  --bg:#03080a;--sf:#071108;--bd:#12401f;
+  --mt:#3f6b48;--tx:#b8ffcb;
+  --gold:#00e676;--grn:#39ff14;--red:#ff5563;
+  --blu:#22ffd5;--tel:#2dd4bf;--pur:#7dff5e;
+}
+:root[data-theme="matrix"] body{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace}
+:root[data-theme="matrix"] .sc-v,:root[data-theme="matrix"] .tb-t{text-shadow:0 0 10px currentColor}
+/* faint CRT scanlines — signature for Matrix, never intercepts clicks */
+:root[data-theme="matrix"] body::after{content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,255,90,.05) 0 1px,transparent 1px 3px)}
+:root[data-theme="synthwave"]{
+  --bg:#14082a;--sf:#1c0f38;--bd:#34215e;
+  --mt:#6b5b95;--tx:#f0e6ff;
+  --gold:#ff2e97;--grn:#3ef0b0;--red:#ff4d6d;
+  --blu:#22d3ee;--tel:#7af7ff;--pur:#b06bff;
+}
+:root[data-theme="synthwave"] .sc-v{text-shadow:0 0 12px currentColor}
+:root[data-theme="nord"]{
+  --bg:#2e3440;--sf:#3b4252;--bd:#434c5e;
+  --mt:#7b8494;--tx:#eceff4;
+  --gold:#ebcb8b;--grn:#a3be8c;--red:#bf616a;
+  --blu:#81a1c1;--tel:#8fbcbb;--pur:#b48ead;
+}
 html,body{height:100%;overflow:hidden}
 body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,sans-serif;font-size:13px;display:flex}
 .sb{width:var(--sw);min-width:var(--sw);height:100vh;background:var(--sf);border-right:.5px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
@@ -175,6 +200,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
 </style>
 </head>
 <body>
+<script>try{var _t=localStorage.getItem('nm_theme');if(_t&&_t!=='classic')document.documentElement.setAttribute('data-theme',_t);}catch(e){}</script>
 
 <aside class="sb">
   <div class="sb-logo"><i class="ti ti-bolt"></i>NerdMiner</div>
@@ -399,7 +425,17 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <div class="fg"><label class="fl">Pool port</label><input class="fi" id="cPort" type="number" min="1" max="65535" placeholder="21496"></div>
       </div>
       <div class="fg"><label class="fl">Pool password</label><input class="fi" id="cPass" type="text" placeholder="x"></div>
-      <div class="fg" style="max-width:160px"><label class="fl">Timezone (UTC offset)</label><input class="fi" id="cTz" type="number" min="-12" max="14" placeholder="0"></div>
+      <div class="fr2">
+        <div class="fg" style="max-width:160px"><label class="fl">Timezone (UTC offset)</label><input class="fi" id="cTz" type="number" min="-12" max="14" placeholder="0"></div>
+        <div class="fg"><label class="fl">Theme &#x2014; applies instantly, saved in this browser</label>
+          <select class="fi" id="cTheme" onchange="setTheme(this.value)">
+            <option value="classic">Classic (dark + gold)</option>
+            <option value="matrix">Cyber Matrix</option>
+            <option value="synthwave">Synthwave</option>
+            <option value="nord">Nord</option>
+          </select>
+        </div>
+      </div>
       <div class="fc"><input type="checkbox" id="cSave"><label for="cSave">Save mining stats to flash (NVS)</label></div>
       <div class="fg"><label class="fl">API token &#x2014; only for firmware built with <code>WEBUI_AUTH_TOKEN</code>; saved in this browser, never in the miner&#x2019;s config</label><input class="fi" id="cToken" type="password" placeholder="leave empty if unused" onchange="setToken(this.value)"></div>
       <div id="wgSection" style="display:none;border-top:1px solid var(--bd);margin-top:14px;padding-top:12px">
@@ -628,6 +664,19 @@ function fleetEsc(s){
 
 // host or host:port — must match the device-side isValidFleetHost()
 function fleetValid(h){return typeof h==='string'&&/^[A-Za-z0-9.\-]+(:\d{1,5})?$/.test(h);}
+
+// ── Themes ────────────────────────────────────────────────────────────────
+// Purely client-side: a data-theme attribute swaps the CSS token palette.
+// Saved per-browser; an inline script in <body> applies it before paint.
+var THEMES=['classic','matrix','synthwave','nord'];
+function currentTheme(){return document.documentElement.getAttribute('data-theme')||'classic';}
+function setTheme(t){
+  if(THEMES.indexOf(t)<0)t='classic';
+  if(t==='classic')document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme',t);
+  try{localStorage.setItem('nm_theme',t);}catch(e){}
+}
+window.setTheme=setTheme;
 
 // ── API token (WEBUI_AUTH_TOKEN builds) ───────────────────────────────────
 // Stored only in this browser, never on the device. One token is assumed
@@ -1166,6 +1215,7 @@ async function fetchSystem(){
 
 async function loadCfg(){
   el('cToken').value=apiToken; // prefill even when the config fetch 401s
+  el('cTheme').value=currentTheme();
   try{
     var r=await api('/api/config');if(!r.ok)return;
     var d=await r.json();

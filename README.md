@@ -29,6 +29,7 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 - **Restart / Factory Reset** — one-click buttons with confirmation dialogs
 - **Optional API token auth** — protect the API behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags). The dashboard prompts for the token on first use and remembers it per-browser (Settings → API token); one token works across the whole fleet, including fleet-wide restart and OTA
 - **WireGuard VPN** *(opt-in build)* — a full-tunnel WireGuard client so a miner behind NAT is reachable at its tunnel IP and its pool traffic is encrypted end-to-end. Configure the tunnel IP, server endpoint, and keys in Settings; a VPN badge shows tunnel state. See [WireGuard VPN](#wireguard-vpn) below
+- **Themes** — switch the dashboard skin in Settings: **Classic** (dark + gold), **Cyber Matrix** (phosphor-green terminal), **Synthwave**, or **Nord**. Applies instantly and is remembered per-browser
 - **Mobile-friendly** — responsive dark UI, works on any browser
 
 The **Fleet** view aggregates every miner on your network in one place — add them manually or hit **Scan LAN** to auto-discover them:
