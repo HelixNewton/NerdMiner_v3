@@ -105,6 +105,8 @@ flash.bat
 
 Both scripts auto-detect your serial port and let you choose your board from a menu.
 
+The scripts offer two methods: **build from source** (needs PlatformIO) or **flash pre-built `.bin` files** (needs only esptool). The pre-built bins include the web dashboard; if you flash them and the miner runs but `http://<device-ip>/` never loads, you're on an old copy — pull the latest, or build from source. Maintainers refresh the pre-built bins with `./bin/regenerate_prebuilt.sh` after any firmware change.
+
 ---
 
 ## Requirements
