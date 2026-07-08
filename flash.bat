@@ -164,12 +164,10 @@ set "PLATFORMIO_BUILD_FLAGS="
 goto :done
 
 :flash_esptool
-:: Determine bin directory for pre-built devices
-set BINDIR=
-if "%ENV%"=="NerdminerV2"    set "BINDIR=bin\bin LYLYGO TDisplay S3 - no pass"
-if "%ENV%"=="ESP32-devKitv1" set "BINDIR=bin\bin ESP32-devKit- no pass"
+:: Pre-built bins live in bin\prebuilt\<env>\ (bin\regenerate_prebuilt.sh)
+set "BINDIR=bin\prebuilt\%ENV%"
 
-if "%BINDIR%"=="" (
+if not exist "%BINDIR%\firmware.bin" (
   echo %YEL%No pre-built bins for this device.%RST%
   if "%HAS_PIO%"=="1" (
     echo.
