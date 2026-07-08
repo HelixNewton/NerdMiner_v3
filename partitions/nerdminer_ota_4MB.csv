@@ -1,0 +1,17 @@
+# OTA-capable layout for 4MB boards (opt-in).
+# huge_app.csv has a single 3MB app slot and NO ota_1 partition, so
+# POST /api/ota fails at Update.begin() on those layouts. This table trades
+# the coredump partition and most of SPIFFS for two maximal OTA slots.
+# App slots are 0x1F0000 (1984KB) each — check your firmware.bin fits.
+# SPIFFS is 64KB: plenty for config.json + fleet.json, which are <8KB.
+# Switching tables relocates SPIFFS: first flash must go over USB and
+# re-provisions WiFi/pool config; OTA works from then on.
+#
+# Usage: board_build.partitions = partitions/nerdminer_ota_4MB.csv
+#
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x1F0000,
+app1,     app,  ota_1,   0x200000, 0x1F0000,
+spiffs,   data, spiffs,  0x3F0000, 0x10000,

@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <Update.h>
+#include <esp_ota_ops.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
@@ -44,8 +45,20 @@ static volatile bool ev_pool_disconnect = false;
 static unsigned long last_config_save_ms = 0;
 #define CONFIG_SAVE_COOLDOWN_MS 5000
 
-// ── Auth helper ───────────────────────────────────────────────────────────
-static bool checkAuth() {
+// ── OTA capability probe ──────────────────────────────────────────────────
+// huge_app.csv-style tables have a single app slot of subtype ota_0, and
+// esp_ota_get_next_update_partition() then returns the RUNNING partition —
+// Update.begin() would erase the executing firmware and brick the board.
+// A bare NULL check is not enough; the slot must differ from the running one.
+static bool otaCapable() {
+    const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
+    return next != NULL && next != esp_ota_get_running_partition();
+}
+
+// ── Auth helpers ──────────────────────────────────────────────────────────
+// authOk: header check only, sends nothing. Usable from upload callbacks,
+// which run before the response phase.
+static bool authOk() {
 #ifdef WEBUI_AUTH_TOKEN
     const String token = String(WEBUI_AUTH_TOKEN);
     if (!token.isEmpty()) {
@@ -55,12 +68,17 @@ static bool checkAuth() {
             String auth = httpServer.header("Authorization");
             if (auth.startsWith("Bearer ") && auth.substring(7) == token) return true;
         }
-        httpServer.send(401, "application/json",
-            "{\"success\":false,\"error\":\"Unauthorized\"}");
         return false;
     }
 #endif
     return true;
+}
+
+static bool checkAuth() {
+    if (authOk()) return true;
+    httpServer.send(401, "application/json",
+        "{\"success\":false,\"error\":\"Unauthorized\"}");
+    return false;
 }
 
 // ── CORS headers ─────────────────────────────────────────────────────────
@@ -111,7 +129,7 @@ static void handleApiStatus() {
     bool     sub = getMinerSubscribed();
     bool     wok = (WiFi.status() == WL_CONNECTED);
 
-    StaticJsonDocument<640> doc;
+    StaticJsonDocument<768> doc;
     doc["hashrate_khs"]  = elk;
     doc["total_mhashes"] = mh;
     doc["shares"]        = sh;
@@ -135,6 +153,9 @@ static void handleApiStatus() {
     doc["pool_port"]     = Settings.PoolPort;
     doc["wallet"]        = String(Settings.BtcWallet);
     doc["firmware"]      = CURRENT_VERSION;
+    doc["build"]         = BUILD_VERSION;
+    doc["chip"]          = ESP.getChipModel();
+    doc["ota"]           = otaCapable();
 
     // Device hostname: "NerdMiner-" + last 4 hex of MAC
     uint8_t mac[6]; WiFi.macAddress(mac);
@@ -166,6 +187,9 @@ static void handleApiSystem() {
 
     StaticJsonDocument<512> doc;
     doc["firmware"]       = CURRENT_VERSION;
+    doc["build"]          = BUILD_VERSION;
+    doc["chip"]           = ESP.getChipModel();
+    doc["ota"]            = otaCapable();
     doc["total_heap"]     = (uint32_t)ESP.getHeapSize();
     doc["free_heap"]      = (uint32_t)ESP.getFreeHeap();
     doc["min_free_heap"]  = (uint32_t)ESP.getMinFreeHeap();
@@ -511,10 +535,28 @@ static void handleOptions() {
 }
 
 // ── POST /api/ota — upload handler (called per chunk) ─────────────────────
+// Auth is decided once at UPLOAD_FILE_START, before a single byte hits
+// flash — checkAuth() can't run here because upload callbacks execute
+// before the response phase.
+static bool otaAuthorized = false;
+static bool otaNoSlot     = false;
+
 static void handleOtaUpload() {
     HTTPUpload& upload = httpServer.upload();
 
     if (upload.status == UPLOAD_FILE_START) {
+        otaAuthorized = authOk();
+        if (!otaAuthorized) {
+            Serial.println("[OTA] Unauthorized upload rejected");
+            return;
+        }
+        // Never call Update.begin() on a single-slot table: the "next"
+        // partition IS the running one and begin() would erase live code.
+        otaNoSlot = !otaCapable();
+        if (otaNoSlot) {
+            Serial.println("[OTA] Refused: no OTA partition on this table");
+            return;
+        }
         Serial.printf("[OTA] Filename: %s  size: %u\n",
                       upload.filename.c_str(), upload.totalSize);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
@@ -522,16 +564,23 @@ static void handleOtaUpload() {
             Update.printError(Serial);
         }
     } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (!otaAuthorized || otaNoSlot || Update.hasError()) return;
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
             Serial.print("[OTA] write error: ");
             Update.printError(Serial);
         }
     } else if (upload.status == UPLOAD_FILE_END) {
+        if (!otaAuthorized || otaNoSlot) return;
         if (Update.end(true)) {
             Serial.printf("[OTA] Success: %u bytes\n", upload.totalSize);
         } else {
             Serial.print("[OTA] end error: ");
             Update.printError(Serial);
+        }
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        if (otaAuthorized && !otaNoSlot) {
+            Update.abort();
+            Serial.println("[OTA] Upload aborted by client");
         }
     }
 }
@@ -539,8 +588,31 @@ static void handleOtaUpload() {
 // ── POST /api/ota — response handler (called after upload finishes) ────────
 static void handleOtaComplete() {
     addCors();
-    if (Update.hasError()) {
-        String err = "[OTA error]";
+    bool uploadRan = otaAuthorized;
+    otaAuthorized = false;   // never let the flag leak into the next request
+    if (!authOk()) {
+        httpServer.send(401, "application/json",
+            "{\"success\":false,\"error\":\"Unauthorized\"}");
+        return;
+    }
+    if (!uploadRan) {
+        // Authorized request, but no firmware file made it through the
+        // upload callback (empty/missing multipart part).
+        httpServer.send(400, "application/json",
+            "{\"success\":false,\"error\":\"No firmware uploaded\"}");
+        return;
+    }
+    if (otaNoSlot) {
+        otaNoSlot = false;
+        httpServer.send(500, "application/json",
+            "{\"success\":false,\"error\":\"No OTA partition — flash this board over USB with an OTA-capable partition table\"}");
+        return;
+    }
+    if (Update.hasError() || !Update.isFinished()) {
+        String err = Update.hasError() ? String(Update.errorString())
+                                       : String("Incomplete upload");
+        // errorString() values are fixed SDK strings; strip quotes defensively
+        err.replace("\"", "'");
         httpServer.send(500, "application/json",
             "{\"success\":false,\"error\":\"" + err + "\"}");
     } else {

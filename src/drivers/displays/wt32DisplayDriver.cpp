@@ -1,4 +1,5 @@
 #include "displayDriver.h"
+#include "version.h"
 
 #ifdef WT32_DISPLAY
 
@@ -344,11 +345,11 @@ void wt32Display_LoadingScreen(void)
 {
   Serial.println("Initializing...");
   Serial.print("Firmware Version: ");
-  Serial.println(AUTO_VERSION);
+  Serial.println(BUILD_VERSION);
   lv_label_set_text(ui_lblssid, "HanSoloAP");
   lv_label_set_text(ui_lblpassword, "MineYourCoins");
-  lv_label_set_text(ui_lblversion, AUTO_VERSION);
-  lv_label_set_text(ui_lblversion2, AUTO_VERSION);
+  lv_label_set_text(ui_lblversion, BUILD_VERSION);
+  lv_label_set_text(ui_lblversion2, BUILD_VERSION);
 
   lv_label_set_text(ui_lblPool, (String(Settings.PoolAddress)+":"+String(Settings.PoolPort)).c_str());
 

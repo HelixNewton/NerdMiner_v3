@@ -358,6 +358,8 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <button class="btn btn-g" id="fleetScanBtn" onclick="fleetScan()">Scan LAN</button>
         <button class="btn btn-g" onclick="fleetRefresh()">Refresh</button>
         <button class="btn btn-g" id="fleetRestartBtn" onclick="fleetRestartAll()">Restart all</button>
+        <button class="btn btn-g" id="fleetOtaBtn" onclick="fleetUpdateAll()">Update all</button>
+        <input type="file" id="fleetOtaFile" accept=".bin" style="display:none" onchange="fleetOtaPicked()">
       </div>
       <div class="fl-grid">
         <div class="sc" style="border-top-color:var(--grn)"><div class="sc-lbl" style="color:var(--grn)"><i class="ti ti-cpu"></i>Online</div><div class="sc-v" style="color:var(--grn)" id="flOnline">&#x2014;</div><div class="sc-s">miners reachable</div></div>
@@ -365,10 +367,11 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <div class="sc" style="border-top-color:var(--blu)"><div class="sc-lbl" style="color:var(--blu)"><i class="ti ti-circle-check"></i>Total accepted</div><div class="sc-v" style="color:var(--blu)" id="flShares">&#x2014;</div><div class="sc-s">shares</div></div>
       </div>
       <table class="st">
-        <thead><tr><th>Miner</th><th>IP</th><th>Status</th><th>Hashrate</th><th>Accepted</th><th>Best diff</th><th>Uptime</th><th></th></tr></thead>
-        <tbody id="fleetBody"><tr><td colspan="8" class="empty-state">No miners yet &#x2014; add one above. This device is added automatically.</td></tr></tbody>
+        <thead><tr><th>Miner</th><th>IP</th><th>Status</th><th>Hashrate</th><th>Accepted</th><th>Best diff</th><th>Uptime</th><th>Version</th><th></th></tr></thead>
+        <tbody id="fleetBody"><tr><td colspan="9" class="empty-state">No miners yet &#x2014; add one above. This device is added automatically.</td></tr></tbody>
       </table>
-      <div class="dbars-lbl" style="margin-top:10px"><strong>Scan LAN</strong> auto-discovers miners on this device&#x2019;s subnet. Stats are polled directly from each miner&#x2019;s <code>/api/status</code> &#x2014; all miners must be on this same network.</div>
+      <div id="fleetOtaPanel" style="display:none;margin-top:10px"></div>
+      <div class="dbars-lbl" style="margin-top:10px"><strong>Scan LAN</strong> auto-discovers miners on this device&#x2019;s subnet. Stats are polled directly from each miner&#x2019;s <code>/api/status</code> &#x2014; all miners must be on this same network. <strong>Update all</strong> pushes one firmware <code>.bin</code> to every miner over WiFi (this device flashes last; requires an OTA-capable partition table).</div>
     </div>
 
   </div>
@@ -678,25 +681,32 @@ function renderFleet(){
   var body=el('fleetBody');if(!body)return;
   set('fleetCount',fleet.length+' miner'+(fleet.length===1?'':'s'));
   if(!fleet.length){
-    body.innerHTML='<tr><td colspan="8" class="empty-state">No miners yet — add one above. This device is added automatically.</td></tr>';
+    body.innerHTML='<tr><td colspan="9" class="empty-state">No miners yet — add one above. This device is added automatically.</td></tr>';
     set('flOnline','0');set('flHash',fmtH(0));set('flShares','0');return;
   }
   var online=0,totHash=0,totShares=0;
+  // compare exact `build` ids only — legacy peers without the field would
+  // otherwise show a spurious mismatch against their `firmware` fallback
+  var selfBuild=String((lastStatus&&lastStatus.build)||'');
   body.innerHTML=fleet.map(function(host){
     var res=fleetData[host];
     var rm='<td style="text-align:right"><button class="lnk-x" title="Remove" data-host="'+fleetEsc(host)+'">✕</button></td>';
     if(res&&res.ok&&res.d){
       var d=res.d;online++;var khs=d.hashrate_khs||0;totHash+=khs;totShares+=(d.shares||0);
       var name=d.hostname||host,conn=d.pool_connected&&d.pool_subscribed;
+      var b=String(d.build||d.firmware||'');
+      var bx=String(d.build||'');
+      var ver=fleetEsc(b||'—')+(selfBuild&&bx&&bx!==selfBuild?' <span class="pj" title="differs from this device">&ne;</span>':'');
       return '<tr><td><a href="http://'+fleetEsc(host)+'/" target="_blank" rel="noopener" class="fl-link">'+fleetEsc(name)+(res.self?' <span style="color:var(--mt)">(this)</span>':'')+'</a></td>'+
         '<td style="color:var(--mt)">'+fleetEsc(d.ip||host)+'</td>'+
         '<td><span class="'+(conn?'pa':'pj')+'">'+(conn?'mining':fleetEsc(d.status||'sync'))+'</span></td>'+
         '<td>'+fmtH(khs)+'</td><td>'+fmtN(d.shares)+'</td><td class="vb">'+fmtD(d.best_diff)+'</td>'+
-        '<td style="color:var(--mt)">'+fmtUp(d.uptime||0)+'</td>'+rm+'</tr>';
+        '<td style="color:var(--mt)">'+fmtUp(d.uptime||0)+'</td>'+
+        '<td style="color:var(--mt)">'+ver+'</td>'+rm+'</tr>';
     }
     var st=res?'<span class="pj">offline</span>':'<span style="color:var(--mt)">polling…</span>';
     return '<tr><td>'+fleetEsc(host)+'</td><td style="color:var(--mt)">—</td><td>'+st+'</td>'+
-      '<td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td>'+rm+'</tr>';
+      '<td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td><td style="color:var(--mt)">—</td>'+rm+'</tr>';
   }).join('');
   set('flOnline',String(online));set('flHash',fmtH(totHash));set('flShares',fmtN(totShares));
 }
@@ -730,7 +740,7 @@ function fleetPoll(host){
 
 function fleetRefresh(){
   if(!fleet.length){renderFleet();return;}
-  if(fleetBusy)return;
+  if(fleetBusy||otaBusy)return;
   fleetBusy=true;
   Promise.all(fleet.map(fleetPoll)).then(function(results){
     results.forEach(function(res){fleetData[res.host]=res;});
@@ -755,7 +765,7 @@ function scanProbe(ip){
 }
 // Sweep the local /24 in concurrency-limited batches and add any miners found.
 async function fleetScan(){
-  if(scanning)return;
+  if(scanning||otaBusy)return;
   scanning=true;
   var btn=el('fleetScanBtn');if(btn){btn.disabled=true;btn.textContent='Scanning…';}
   var found=0,newHosts=[];
@@ -808,15 +818,26 @@ async function fleetScan(){
 }
 window.fleetScan=fleetScan;
 
+// self may be stored bare, with an explicit :80, or as its mDNS name — match
+// all forms, and never match on the 0.0.0.0 placeholder ip reported while
+// WiFi is down. Wrongly treating self as a peer flashes/restarts this device
+// mid-batch instead of last.
+function isSelfHost(h){
+  h=String(h||'').toLowerCase();
+  if(!h)return false;
+  if(selfIp&&selfIp!=='0.0.0.0'&&(h===selfIp||h===selfIp+':80'))return true;
+  var hn=String((lastStatus&&lastStatus.hostname)||'').toLowerCase();
+  return !!hn&&(h===hn||h===hn+'.local'||h===hn+'.local:80');
+}
+
 // Restart every miner in the fleet. Peers first (in parallel, so their
 // results can be reported), then this device last — restarting self kills
 // the server the dashboard is talking to.
 async function fleetRestartAll(){
+  if(otaBusy||scanning)return;
   if(!fleet.length){toast('No miners in fleet','warn');return;}
   if(!confirm('Restart ALL '+fleet.length+' miner'+(fleet.length===1?'':'s')+' in the fleet?'))return;
   var btn=el('fleetRestartBtn');if(btn)btn.disabled=true;
-  // self may be stored bare or with an explicit :80 — match both
-  function isSelfHost(h){return !!selfIp&&(h===selfIp||h===selfIp+':80');}
   var self=fleet.filter(isSelfHost)[0]||null;
   var others=fleet.filter(function(h){return !isSelfHost(h);});
   var ok=0,fail=0;
@@ -834,6 +855,136 @@ async function fleetRestartAll(){
   if(btn)btn.disabled=false;
 }
 window.fleetRestartAll=fleetRestartAll;
+
+// ── Fleet OTA: push one firmware .bin to every miner, this device last ────
+var otaBusy=false;
+// Progress rows are built with textContent (never innerHTML) — hostnames and
+// error strings come from remote miners and must not be parsed as HTML.
+function otaRow(panel,label){
+  var row=document.createElement('div');row.className='log-row';
+  var name=document.createElement('span');name.className='log-ts';name.textContent=label;
+  var st=document.createElement('span');st.className='log-msg';st.textContent='waiting…';
+  row.appendChild(name);row.appendChild(st);panel.appendChild(row);
+  return st;
+}
+// Shared firmware-file sanity check (fleet Update-all + settings Flash).
+// Advisory only — the device rejects non-firmware payloads on its own.
+function fwValid(f){
+  if(!/\.bin$/i.test(f.name)){toast('Select a firmware .bin file','err');return false;}
+  if(f.size<102400){toast('That file is too small to be NerdMiner firmware','err');return false;}
+  return true;
+}
+// XHR instead of fetch: upload.onprogress is the only way to show % uploaded.
+function otaUpload(url,file,onProg){
+  return new Promise(function(resolve){
+    var xhr=new XMLHttpRequest();
+    xhr.open('POST',url);
+    xhr.timeout=180000;
+    if(xhr.upload)xhr.upload.onprogress=function(e){
+      if(e.lengthComputable)onProg(Math.round(e.loaded/e.total*100),e.loaded,e.total);
+    };
+    xhr.onload=function(){
+      var d=null;try{d=JSON.parse(xhr.responseText);}catch(e){}
+      if(xhr.status===200&&d&&d.success)resolve({ok:true});
+      else resolve({ok:false,err:String((d&&d.error)||('HTTP '+xhr.status))});
+    };
+    xhr.onerror=function(){resolve({ok:false,err:'unreachable'});};
+    xhr.ontimeout=function(){resolve({ok:false,err:'timed out'});};
+    var fd=new FormData();
+    fd.append('firmware',file,file.name||'firmware.bin');
+    xhr.send(fd);
+  });
+}
+function fleetBtns(disabled){
+  ['fleetOtaBtn','fleetScanBtn','fleetRestartBtn'].forEach(function(id){
+    var b=el(id);if(b)b.disabled=disabled;
+  });
+}
+async function fleetUpdateRun(file){
+  otaBusy=true;
+  fleetBtns(true);
+  var btn=el('fleetOtaBtn');if(btn)btn.textContent='Updating…';
+  var panel=el('fleetOtaPanel');panel.style.display='block';panel.innerHTML='';
+  var selfH=fleet.filter(isSelfHost)[0]||null;
+  var peers=fleet.filter(function(h){return !isSelfHost(h);});
+  var ok=0,fail=0,skip=0;
+  var selfChip=String((lastStatus&&lastStatus.chip)||'');
+  // A peer that reported ota:false has a single-slot partition table (needs a
+  // USB flash), and a different chip family can never run this image — don't
+  // waste a 2MB upload on either. Peers predating these fields are attempted.
+  function otaSkipReason(h){
+    var pd=fleetData[h]&&fleetData[h].d;
+    if(!pd)return null;
+    if(pd.ota===false)return 'no OTA partition (USB flash needed)';
+    if(pd.chip&&selfChip&&pd.chip!==selfChip)return 'different chip ('+pd.chip+' vs '+selfChip+')';
+    return null;
+  }
+  // Sequential on purpose: flashing is the slow part on-device, and parallel
+  // uploads would just contend for WiFi airtime and browser sockets.
+  for(var i=0;i<peers.length;i++){
+    var st=otaRow(panel,peers[i]);
+    var why=otaSkipReason(peers[i]);
+    if(why){skip++;st.textContent='skipped — '+why;st.className='log-msg ev-warn';continue;}
+    var res=await otaUpload('http://'+peers[i]+'/api/ota',file,function(p){st.textContent='uploading… '+p+'%';});
+    if(res.ok){ok++;st.textContent='updated — restarting';st.className='log-msg ev-ok';}
+    else{fail++;st.textContent='failed: '+res.err;st.className='log-msg ev-err';}
+  }
+  if(peers.length)pushLog('Fleet update: '+ok+' of '+peers.length+' peer'+(peers.length===1?'':'s')+' updated'+(fail?(', '+fail+' failed'):'')+(skip?(', '+skip+' skipped'):''),fail?'warn':'ok');
+  if(selfH&&lastStatus&&lastStatus.ota===false){
+    var stS=otaRow(panel,selfH+' (this device)');
+    stS.textContent='skipped — no OTA partition (USB flash needed)';
+    stS.className='log-msg ev-warn';
+    selfH=null;skip++;
+  }
+  if(selfH){
+    var st2=otaRow(panel,selfH+' (this device)');
+    var res2=await otaUpload('/api/ota',file,function(p){st2.textContent='uploading… '+p+'%';});
+    if(res2.ok){
+      st2.textContent='flashed — restarting, page reloads when it\'s back…';
+      st2.className='log-msg ev-ok';
+      pushLog('This device flashed — restarting','ok');
+      var tries=0;
+      var t=setInterval(function(){
+        tries++;
+        if(tries>40){
+          clearInterval(t);
+          st2.textContent='flashed — restarted, reload the page manually';
+          // un-wedge the dashboard: device may be back on a new IP
+          otaBusy=false;
+          fleetBtns(false);
+          if(btn)btn.textContent='Update all';
+          return;
+        }
+        fetch('/api/status',{cache:'no-store'})
+          .then(function(r){if(r.ok){clearInterval(t);location.reload();}})
+          .catch(function(){});
+      },3000);
+      return; // keep otaBusy while polling: this page is done, a fresh one takes over
+    }
+    fail++;st2.textContent='failed: '+res2.err;st2.className='log-msg ev-err';
+    pushLog('Self update failed: '+res2.err,'err');
+  }
+  if(fail)toast('Fleet update finished with '+fail+' failure'+(fail===1?'':'s'),'warn');
+  else toast('Fleet update complete — miners restarting','ok');
+  otaBusy=false;
+  fleetBtns(false);
+  if(btn)btn.textContent='Update all';
+  fleetRefresh();
+}
+window.fleetUpdateAll=function(){
+  if(otaBusy)return;
+  if(!fleet.length){toast('No miners in fleet','warn');return;}
+  el('fleetOtaFile').click();
+};
+window.fleetOtaPicked=function(){
+  var inp=el('fleetOtaFile');
+  var f=inp.files&&inp.files[0];
+  inp.value='';
+  if(!f)return;
+  if(!fwValid(f))return;
+  if(!confirm('Flash "'+f.name+'" ('+fmtB(f.size)+') to ALL '+fleet.length+' miner'+(fleet.length===1?'':'s')+'?\n\nEach miner restarts after flashing. This device is flashed last.'))return;
+  fleetUpdateRun(f);
+};
 
 function pushAlert(type,msg){
   alertLog.unshift({t:nowT(),type:type,msg:msg});
@@ -1011,21 +1162,24 @@ async function startOta(){
   var fi=el('otaFile');
   if(!fi.files.length){toast('Select a .bin file first','err');return;}
   var file=fi.files[0];
-  if(!file.name.endsWith('.bin')){toast('File must be .bin','err');return;}
+  if(!fwValid(file))return;
   if(!confirm('Flash '+file.name+' ('+fmtB(file.size)+')?'))return;
   var w=el('otaW'),fill=el('otaFill'),msg=el('otaMsg');
   w.style.display='block';
-  var fd=new FormData();fd.append('firmware',file,file.name);
-  var xhr=new XMLHttpRequest();xhr.open('POST','/api/ota');
-  xhr.upload.onprogress=function(e){if(e.lengthComputable){var p=Math.round(e.loaded/e.total*100);fill.style.width=p+'%';msg.textContent='Uploading... '+fmtB(e.loaded)+' / '+fmtB(e.total);}};
-  xhr.onload=function(){try{var res=JSON.parse(xhr.responseText);msg.textContent=res.success?'Flash complete! Restarting...':'Failed: '+(res.error||'unknown');toast(res.success?'OTA complete':'OTA failed',res.success?'ok':'err');}catch(e){msg.textContent='Upload complete, restarting...';toast('OTA sent','ok');}};
-  xhr.onerror=function(){msg.textContent='Upload error.';toast('Upload error','err');};
-  xhr.send(fd);
+  var res=await otaUpload('/api/ota',file,function(p,loaded,total){
+    fill.style.width=p+'%';
+    msg.textContent='Uploading... '+fmtB(loaded)+' / '+fmtB(total);
+  });
+  if(res.ok){msg.textContent='Flash complete! Restarting...';toast('OTA complete','ok');}
+  else{msg.textContent='Failed: '+res.err;toast('OTA failed: '+res.err,'err');}
 }
 window.startOta=startOta;
 
 function openCfg(){loadCfg();set('cMsg','');el('moCfg').classList.add('show');}
-function openOta(){el('moOta').classList.add('show');}
+function openOta(){
+  if(lastStatus&&lastStatus.ota===false){toast('This board has no OTA partition — flash it over USB','err');return;}
+  el('moOta').classList.add('show');
+}
 function closeM(id){el(id).classList.remove('show');}
 window.openCfg=openCfg;window.openOta=openOta;window.closeM=closeM;
 

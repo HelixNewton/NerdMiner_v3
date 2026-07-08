@@ -19,7 +19,7 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 ### Features
 
 - **Live stats** — hashrate, shares accepted/rejected, best difficulty, uptime, free heap, templates received
-- **Fleet view** — monitor *all* your miners from one dashboard: **Scan LAN** auto-discovers every NerdMiner on your subnet (or add them by IP/hostname), then see combined hashrate, total shares, and per-device status side by side (no need to open each IP individually)
+- **Fleet view** — monitor *all* your miners from one dashboard: **Scan LAN** auto-discovers every NerdMiner on your subnet via mDNS (or add them by IP/hostname), then see combined hashrate, total shares, per-device status, and firmware version side by side. **Restart all** and **Update all** apply one action to the entire fleet — including pushing one firmware `.bin` to every miner over WiFi
 - **Real-time share log & alerts** — accepted/rejected shares and pool disconnects appear live as they happen
 - **Real-time hashrate chart** — canvas sparkline with rolling window
 - **One-click pool switching** — pick a pool from the toolbar dropdown to retarget the miner instantly (list is served from the firmware's pool registry)
@@ -53,8 +53,13 @@ The **Fleet** view aggregates every miner on your network in one place — add t
 | `POST` | `/api/restart` | Soft restart |
 | `POST` | `/api/reset` | Factory reset (clears NVS) |
 | `POST` | `/api/ota` | OTA firmware upload (multipart) |
+| `GET` | `/api/fleet` | Fleet host list stored on this device |
+| `POST` | `/api/fleet` | Merge a `{"add":[],"remove":[]}` delta into the fleet list |
+| `GET` | `/api/discover` | mDNS discovery of other NerdMiners on the LAN |
 
 > **Fleet polling:** the Fleet view fetches each miner's `/api/status` directly from your browser (CORS is enabled), so all miners must be on the same network you're browsing from. The miner list is persisted on the device itself (`/api/fleet`), so every browser that opens a miner's dashboard sees the same fleet; `localStorage` is only used as a local cache for instant paint.
+
+> **OTA partition requirement:** `/api/ota` (and the Fleet **Update all** button) needs a partition table with two app slots. The `NerdminerV2` (ESP32-S3, 8MB) environment now uses `default_8MB.csv`, which has them. Boards still on `huge_app.csv` have a single app slot — the device detects this and **refuses** the update (`/api/status` reports `"ota": false`, the dashboard hides the option, and **Update all** skips those miners); opt in with `board_build.partitions = partitions/nerdminer_ota_4MB.csv` (check your `.bin` is under 1984 KB). **Update all** also skips miners whose chip family (`"chip"` in `/api/status`) differs from the device you're pushing from — one `.bin` only fits one chip. Switching tables relocates SPIFFS, so the **first** flash with a new table must go over USB and re-provisions WiFi/pool settings — OTA works from then on.
 
 ### Flash Scripts
 
