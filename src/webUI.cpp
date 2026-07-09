@@ -157,6 +157,12 @@ static void handleApiStatus() {
     doc["firmware"]      = CURRENT_VERSION;
     doc["build"]         = BUILD_VERSION;
     doc["chip"]          = ESP.getChipModel();
+    // Chip model is too coarse to gate an OTA push: an S3 DevKit and an S3
+    // AMOLED are both "ESP32-S3" but need different images. NM_BOARD_ID is the
+    // PlatformIO env name, injected by auto_firmware_version.py.
+#ifdef NM_BOARD_ID
+    doc["board"]         = NM_BOARD_ID;
+#endif
     doc["ota"]           = otaCapable();
 #ifdef ENABLE_WIREGUARD
     doc["wg_enabled"]    = wgIsEnabled();
@@ -629,6 +635,27 @@ static void handleOptions() {
 // before the response phase.
 static bool otaAuthorized = false;
 static bool otaNoSlot     = false;
+static bool otaBadImage   = false;
+
+// A merged/factory image (bootloader + partition table + app, flashed at 0x0)
+// starts with the SAME 0xE9 magic as a bare app image, so Update.begin() accepts
+// it and writes the bootloader into the app slot. esp_image_verify can then pass
+// on the embedded bootloader header, otadata gets repointed, and the board boots
+// into bootloader code mapped at the app offset — a reset loop needing USB
+// recovery. Only a merged image carries a partition-table header at 0x8000, so
+// sniff for it and refuse before anything is committed.
+static const size_t OTA_PT_OFFSET = 0x8000;
+static size_t  otaOffset   = 0;
+static uint8_t otaSig[8];
+static uint8_t otaSigBytes = 0;
+
+static bool looksLikeMergedImage(const uint8_t* s) {
+    if (s[0] != 0xAA || s[1] != 0x50) return false;          // ESP_PARTITION_MAGIC
+    if (s[2] != 0x00 && s[2] != 0x01) return false;          // type: app | data
+    uint32_t off = (uint32_t)s[4] | ((uint32_t)s[5] << 8)
+                 | ((uint32_t)s[6] << 16) | ((uint32_t)s[7] << 24);
+    return off >= 0x8000 && (off % 0x1000) == 0;             // plausible entry offset
+}
 
 static void handleOtaUpload() {
     HTTPUpload& upload = httpServer.upload();
@@ -646,6 +673,9 @@ static void handleOtaUpload() {
             Serial.println("[OTA] Refused: no OTA partition on this table");
             return;
         }
+        otaBadImage = false;
+        otaOffset   = 0;
+        otaSigBytes = 0;
         Serial.printf("[OTA] Filename: %s  size: %u\n",
                       upload.filename.c_str(), upload.totalSize);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
@@ -653,13 +683,35 @@ static void handleOtaUpload() {
             Update.printError(Serial);
         }
     } else if (upload.status == UPLOAD_FILE_WRITE) {
-        if (!otaAuthorized || otaNoSlot || Update.hasError()) return;
+        if (!otaAuthorized || otaNoSlot || otaBadImage || Update.hasError()) return;
+
+        // Capture the 8 bytes at file offset 0x8000, which may straddle chunks.
+        size_t chunkStart = otaOffset;
+        size_t chunkEnd   = otaOffset + upload.currentSize;
+        if (chunkStart < OTA_PT_OFFSET + sizeof(otaSig) && chunkEnd > OTA_PT_OFFSET) {
+            size_t from = chunkStart > OTA_PT_OFFSET ? chunkStart : OTA_PT_OFFSET;
+            size_t to   = chunkEnd < OTA_PT_OFFSET + sizeof(otaSig)
+                        ? chunkEnd : OTA_PT_OFFSET + sizeof(otaSig);
+            for (size_t a = from; a < to; a++) {
+                otaSig[a - OTA_PT_OFFSET] = upload.buf[a - chunkStart];
+                otaSigBytes++;
+            }
+            if (otaSigBytes >= sizeof(otaSig) && looksLikeMergedImage(otaSig)) {
+                otaBadImage = true;
+                Update.abort();
+                Serial.println("[OTA] Refused: merged/factory image — upload the bare "
+                               "app image (firmware.bin), not *_factory.bin");
+                return;
+            }
+        }
+        otaOffset = chunkEnd;
+
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
             Serial.print("[OTA] write error: ");
             Update.printError(Serial);
         }
     } else if (upload.status == UPLOAD_FILE_END) {
-        if (!otaAuthorized || otaNoSlot) return;
+        if (!otaAuthorized || otaNoSlot || otaBadImage) return;
         if (Update.end(true)) {
             Serial.printf("[OTA] Success: %u bytes\n", upload.totalSize);
         } else {
@@ -667,8 +719,8 @@ static void handleOtaUpload() {
             Update.printError(Serial);
         }
     } else if (upload.status == UPLOAD_FILE_ABORTED) {
-        if (otaAuthorized && !otaNoSlot) {
-            Update.abort();
+        if (otaAuthorized && !otaNoSlot && !otaBadImage) {
+            Update.abort();   // already aborted on the bad-image path
             Serial.println("[OTA] Upload aborted by client");
         }
     }
@@ -689,6 +741,12 @@ static void handleOtaComplete() {
         // upload callback (empty/missing multipart part).
         httpServer.send(400, "application/json",
             "{\"success\":false,\"error\":\"No firmware uploaded\"}");
+        return;
+    }
+    if (otaBadImage) {
+        otaBadImage = false;
+        httpServer.send(400, "application/json",
+            "{\"success\":false,\"error\":\"That is a merged/factory image. Upload the bare app image (firmware.bin), not *_factory.bin\"}");
         return;
     }
     if (otaNoSlot) {

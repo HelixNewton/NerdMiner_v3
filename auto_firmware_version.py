@@ -22,3 +22,9 @@ def get_firmware_specifier_build_flag():
 flag = get_firmware_specifier_build_flag()
 if flag:
     env.Append(BUILD_FLAGS=[flag])
+
+# Board identity for Fleet OTA. ESP.getChipModel() cannot tell an S3 DevKit from
+# an S3 AMOLED, so "Update all" would happily push one board's image to the
+# other: same chip, different displays and pins. The PlatformIO env name is the
+# only thing that uniquely names a build target.
+env.Append(BUILD_FLAGS=["-D NM_BOARD_ID=\\\"" + env["PIOENV"] + "\\\""])

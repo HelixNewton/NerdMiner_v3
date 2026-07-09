@@ -385,8 +385,6 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <button class="btn btn-g" id="fleetScanBtn" onclick="fleetScan()">Scan LAN</button>
         <button class="btn btn-g" onclick="fleetRefresh()">Refresh</button>
         <button class="btn btn-g" id="fleetRestartBtn" onclick="fleetRestartAll()">Restart all</button>
-        <button class="btn btn-g" id="fleetOtaBtn" onclick="fleetUpdateAll()">Update all</button>
-        <input type="file" id="fleetOtaFile" accept=".bin" style="display:none" onchange="fleetOtaPicked()">
       </div>
       <div class="fl-grid">
         <div class="sc" style="border-top-color:var(--grn)"><div class="sc-lbl" style="color:var(--grn)"><i class="ti ti-cpu"></i>Online</div><div class="sc-v" style="color:var(--grn)" id="flOnline">&#x2014;</div><div class="sc-s">miners reachable</div></div>
@@ -397,8 +395,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <thead><tr><th>Miner</th><th>IP</th><th>Status</th><th>Hashrate</th><th>Accepted</th><th>Best diff</th><th>Uptime</th><th>Version</th><th></th></tr></thead>
         <tbody id="fleetBody"><tr><td colspan="9" class="empty-state">No miners yet &#x2014; add one above. This device is added automatically.</td></tr></tbody>
       </table>
-      <div id="fleetOtaPanel" style="display:none;margin-top:10px"></div>
-      <div class="dbars-lbl" style="margin-top:10px"><strong>Scan LAN</strong> auto-discovers miners on this device&#x2019;s subnet. Stats are polled directly from each miner&#x2019;s <code>/api/status</code> &#x2014; all miners must be on this same network. <strong>Update all</strong> pushes one firmware <code>.bin</code> to every miner over WiFi (this device flashes last; requires an OTA-capable partition table).</div>
+      <div class="dbars-lbl" style="margin-top:10px"><strong>Scan LAN</strong> auto-discovers miners on this device&#x2019;s subnet. Stats are polled directly from each miner&#x2019;s <code>/api/status</code> &#x2014; all miners must be on this same network. To update firmware, open a miner&#x2019;s own dashboard and use <strong>Settings &#x2192; Firmware update (OTA)</strong> &#x2014; one <code>.bin</code> only fits one board.</div>
     </div>
 
   </div>
@@ -482,7 +479,7 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
       <button class="md-x" onclick="closeM('moOta')">&#x2715;</button>
     </div>
     <div class="md-b">
-      <p style="font-size:12px;color:var(--mt);margin-bottom:12px">Upload a compiled <strong style="color:var(--tx)">.bin</strong> file. Device restarts automatically. Current firmware: <span id="otaV" style="color:var(--blu)">&#x2014;</span></p>
+      <p style="font-size:12px;color:var(--mt);margin-bottom:12px">Upload the bare app image <strong style="color:var(--tx)">firmware.bin</strong> built for <strong style="color:var(--tx)"><span id="otaB">this board</span></strong> &#x2014; not <code>*_factory.bin</code>, and not another board&#x2019;s image. Device restarts automatically. Current firmware: <span id="otaV" style="color:var(--blu)">&#x2014;</span></p>
       <div style="display:flex;gap:8px;align-items:center">
         <input class="fi" type="file" id="otaFile" accept=".bin" style="flex:1">
         <button class="btn btn-p" onclick="startOta()">Flash</button>
@@ -964,22 +961,22 @@ async function fleetRestartAll(){
 }
 window.fleetRestartAll=fleetRestartAll;
 
-// ── Fleet OTA: push one firmware .bin to every miner, this device last ────
+// ── Firmware upload (this device only) ────────────────────────────────────
+// There is deliberately no fleet-wide "Update all": one .bin only ever fits one
+// board, and a peer running firmware too old to report its `board` id could not
+// be told apart from a same-chip sibling, so a wrong-board image would flash
+// cleanly and then boot into the wrong display/pin drivers. Update each miner
+// from its own dashboard, where the image you pick is unambiguous.
+// Set while a flash is uploading, so fleet polling/scan/restart stand aside.
 var otaBusy=false;
-// Progress rows are built with textContent (never innerHTML) — hostnames and
-// error strings come from remote miners and must not be parsed as HTML.
-function otaRow(panel,label){
-  var row=document.createElement('div');row.className='log-row';
-  var name=document.createElement('span');name.className='log-ts';name.textContent=label;
-  var st=document.createElement('span');st.className='log-msg';st.textContent='waiting…';
-  row.appendChild(name);row.appendChild(st);panel.appendChild(row);
-  return st;
-}
-// Shared firmware-file sanity check (fleet Update-all + settings Flash).
+// Firmware-file sanity check for the Settings → Firmware update (OTA) modal.
 // Advisory only — the device rejects non-firmware payloads on its own.
 function fwValid(f){
   if(!/\.bin$/i.test(f.name)){toast('Select a firmware .bin file','err');return false;}
   if(f.size<102400){toast('That file is too small to be NerdMiner firmware','err');return false;}
+  // A merged image writes a bootloader into the app slot; the device refuses it
+  // too, but catching it here saves a pointless multi-MB upload.
+  if(/factory/i.test(f.name)){toast('Use the bare app image (firmware.bin), not *_factory.bin','err');return false;}
   return true;
 }
 // XHR instead of fetch: upload.onprogress is the only way to show % uploaded.
@@ -1005,96 +1002,6 @@ function otaUpload(url,file,onProg){
     xhr.send(fd);
   });
 }
-function fleetBtns(disabled){
-  ['fleetOtaBtn','fleetScanBtn','fleetRestartBtn'].forEach(function(id){
-    var b=el(id);if(b)b.disabled=disabled;
-  });
-}
-async function fleetUpdateRun(file){
-  otaBusy=true;
-  fleetBtns(true);
-  var btn=el('fleetOtaBtn');if(btn)btn.textContent='Updating…';
-  var panel=el('fleetOtaPanel');panel.style.display='block';panel.innerHTML='';
-  var selfH=fleet.filter(isSelfHost)[0]||null;
-  var peers=fleet.filter(function(h){return !isSelfHost(h);});
-  var ok=0,fail=0,skip=0;
-  var selfChip=String((lastStatus&&lastStatus.chip)||'');
-  // A peer that reported ota:false has a single-slot partition table (needs a
-  // USB flash), and a different chip family can never run this image — don't
-  // waste a 2MB upload on either. Peers predating these fields are attempted.
-  function otaSkipReason(h){
-    var pd=fleetData[h]&&fleetData[h].d;
-    if(!pd)return null;
-    if(pd.ota===false)return 'no OTA partition (USB flash needed)';
-    if(pd.chip&&selfChip&&pd.chip!==selfChip)return 'different chip ('+pd.chip+' vs '+selfChip+')';
-    return null;
-  }
-  // Sequential on purpose: flashing is the slow part on-device, and parallel
-  // uploads would just contend for WiFi airtime and browser sockets.
-  for(var i=0;i<peers.length;i++){
-    var st=otaRow(panel,peers[i]);
-    var why=otaSkipReason(peers[i]);
-    if(why){skip++;st.textContent='skipped — '+why;st.className='log-msg ev-warn';continue;}
-    var res=await otaUpload('http://'+peers[i]+'/api/ota',file,function(p){st.textContent='uploading… '+p+'%';});
-    if(res.ok){ok++;st.textContent='updated — restarting';st.className='log-msg ev-ok';}
-    else{fail++;st.textContent='failed: '+res.err;st.className='log-msg ev-err';}
-  }
-  if(peers.length)pushLog('Fleet update: '+ok+' of '+peers.length+' peer'+(peers.length===1?'':'s')+' updated'+(fail?(', '+fail+' failed'):'')+(skip?(', '+skip+' skipped'):''),fail?'warn':'ok');
-  if(selfH&&lastStatus&&lastStatus.ota===false){
-    var stS=otaRow(panel,selfH+' (this device)');
-    stS.textContent='skipped — no OTA partition (USB flash needed)';
-    stS.className='log-msg ev-warn';
-    selfH=null;skip++;
-  }
-  if(selfH){
-    var st2=otaRow(panel,selfH+' (this device)');
-    var res2=await otaUpload('/api/ota',file,function(p){st2.textContent='uploading… '+p+'%';});
-    if(res2.ok){
-      st2.textContent='flashed — restarting, page reloads when it\'s back…';
-      st2.className='log-msg ev-ok';
-      pushLog('This device flashed — restarting','ok');
-      var tries=0;
-      var t=setInterval(function(){
-        tries++;
-        if(tries>40){
-          clearInterval(t);
-          st2.textContent='flashed — restarted, reload the page manually';
-          // un-wedge the dashboard: device may be back on a new IP
-          otaBusy=false;
-          fleetBtns(false);
-          if(btn)btn.textContent='Update all';
-          return;
-        }
-        api('/api/status',{cache:'no-store'})
-          .then(function(r){if(r.ok){clearInterval(t);location.reload();}})
-          .catch(function(){});
-      },3000);
-      return; // keep otaBusy while polling: this page is done, a fresh one takes over
-    }
-    fail++;st2.textContent='failed: '+res2.err;st2.className='log-msg ev-err';
-    pushLog('Self update failed: '+res2.err,'err');
-  }
-  if(fail)toast('Fleet update finished with '+fail+' failure'+(fail===1?'':'s'),'warn');
-  else toast('Fleet update complete — miners restarting','ok');
-  otaBusy=false;
-  fleetBtns(false);
-  if(btn)btn.textContent='Update all';
-  fleetRefresh();
-}
-window.fleetUpdateAll=function(){
-  if(otaBusy)return;
-  if(!fleet.length){toast('No miners in fleet','warn');return;}
-  el('fleetOtaFile').click();
-};
-window.fleetOtaPicked=function(){
-  var inp=el('fleetOtaFile');
-  var f=inp.files&&inp.files[0];
-  inp.value='';
-  if(!f)return;
-  if(!fwValid(f))return;
-  if(!confirm('Flash "'+f.name+'" ('+fmtB(f.size)+') to ALL '+fleet.length+' miner'+(fleet.length===1?'':'s')+'?\n\nEach miner restarts after flashing. This device is flashed last.'))return;
-  fleetUpdateRun(f);
-};
 
 function pushAlert(type,msg){
   alertLog.unshift({t:nowT(),type:type,msg:msg});
@@ -1146,6 +1053,7 @@ function applyStatus(d){
   var fw=(d.firmware||'').replace(/^v/,'');
   set('verBadge','v'+(fw||'--'));
   set('otaV',d.firmware||'--');
+  set('otaB',d.board||d.chip||'this board');
   set('sIp',d.ip||'--');
   var ok=d.pool_connected&&d.pool_subscribed;
   var badge=el('connBadge');
@@ -1341,12 +1249,17 @@ async function startOta(){
   if(!confirm('Flash '+file.name+' ('+fmtB(file.size)+')?'))return;
   var w=el('otaW'),fill=el('otaFill'),msg=el('otaMsg');
   w.style.display='block';
-  var res=await otaUpload('/api/ota',file,function(p,loaded,total){
-    fill.style.width=p+'%';
-    msg.textContent='Uploading... '+fmtB(loaded)+' / '+fmtB(total);
-  });
-  if(res.ok){msg.textContent='Flash complete! Restarting...';toast('OTA complete','ok');}
-  else{msg.textContent='Failed: '+res.err;toast('OTA failed: '+res.err,'err');}
+  // Hold off fleet polling/scanning/restart while a flash is in flight: they
+  // would contend for WiFi airtime with a multi-MB upload.
+  otaBusy=true;
+  try{
+    var res=await otaUpload('/api/ota',file,function(p,loaded,total){
+      fill.style.width=p+'%';
+      msg.textContent='Uploading... '+fmtB(loaded)+' / '+fmtB(total);
+    });
+    if(res.ok){msg.textContent='Flash complete! Restarting...';toast('OTA complete','ok');}
+    else{msg.textContent='Failed: '+res.err;toast('OTA failed: '+res.err,'err');}
+  }finally{otaBusy=false;}
 }
 window.startOta=startOta;
 

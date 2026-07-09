@@ -19,7 +19,7 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 ### Features
 
 - **Live stats** — hashrate, shares accepted/rejected, best difficulty, uptime, free heap, templates received
-- **Fleet view** — monitor *all* your miners from one dashboard: **Scan LAN** auto-discovers every NerdMiner on your subnet via mDNS (or add them by IP/hostname), then see combined hashrate, total shares, per-device status, and firmware version side by side. **Restart all** and **Update all** apply one action to the entire fleet — including pushing one firmware `.bin` to every miner over WiFi
+- **Fleet view** — monitor *all* your miners from one dashboard: **Scan LAN** auto-discovers every NerdMiner on your subnet via mDNS (or add them by IP/hostname), then see combined hashrate, total shares, per-device status, and firmware version side by side. **Restart all** applies one action to the entire fleet. Firmware is updated per-miner from its own dashboard — see [OTA](#fleet-view)
 - **Real-time share log & alerts** — accepted/rejected shares and pool disconnects appear live as they happen
 - **Real-time hashrate chart** — canvas sparkline with rolling window
 - **One-click pool switching** — pick a pool from the toolbar dropdown to retarget the miner instantly (list is served from the firmware's pool registry)
@@ -63,7 +63,24 @@ The **Fleet** view aggregates every miner on your network in one place — add t
 
 > **Fleet polling:** the Fleet view fetches each miner's `/api/status` directly from your browser (CORS is enabled), so all miners must be on the same network you're browsing from. The miner list is persisted on the device itself (`/api/fleet`), so every browser that opens a miner's dashboard sees the same fleet; `localStorage` is only used as a local cache for instant paint.
 
-> **OTA partition requirement:** `/api/ota` (and the Fleet **Update all** button) needs a partition table with two app slots. The `NerdminerV2` (ESP32-S3, 8MB) environment now uses `default_8MB.csv`, which has them. Boards still on `huge_app.csv` have a single app slot — the device detects this and **refuses** the update (`/api/status` reports `"ota": false`, the dashboard hides the option, and **Update all** skips those miners); opt in with `board_build.partitions = partitions/nerdminer_ota_4MB.csv` (check your `.bin` is under 1984 KB). **Update all** also skips miners whose chip family (`"chip"` in `/api/status`) differs from the device you're pushing from — one `.bin` only fits one chip. Switching tables relocates SPIFFS, so the **first** flash with a new table must go over USB and re-provisions WiFi/pool settings — OTA works from then on.
+> **OTA partition requirement:** `/api/ota` needs a partition table with two app slots. **All six web-UI environments now have them**, so every dashboard-capable board is OTA-updatable:
+>
+> | Environment | Flash | Partition table | App slot |
+> |---|---|---|---|
+> | `ESP32-devKitv1` | 4 MB | `partitions/nerdminer_ota_4MB.csv` | 1984 KB |
+> | `NerdminerV2` | 8 MB | `default_8MB.csv` | 3264 KB |
+> | `ESP32-S3-devKitv1` | 8 MB | `default_8MB.csv` | 3264 KB |
+> | `esp32-s3-devkitc1-n32r8` | 8 MB | `default_8MB.csv` | 3264 KB |
+> | `NerdminerV2-S3-AMOLED` | 16 MB | `default_16MB.csv` | 6400 KB |
+> | `NerdminerV2-T-HMI` | 16 MB | `default_16MB.csv` | 6400 KB |
+>
+> **Update one miner at a time**, from its own dashboard: **Settings → Firmware update (OTA)**. There is deliberately no fleet-wide "update all" button. One `.bin` only ever fits one board, and `ESP.getChipModel()` cannot tell an S3 DevKit from an S3 AMOLED — both report `ESP32-S3` — so a wrong-board image would flash cleanly, pass verification, and then boot into the wrong display and pin drivers. `/api/status` reports the PlatformIO environment name as `"board"`, and the OTA dialog names the board the image must be built for.
+>
+> **Upload the bare app image** — `bin/prebuilt/<env>/firmware.bin` (or `.pio/build/<env>/firmware.bin`), *not* the merged `*_factory.bin`. A factory image contains the bootloader and partition table and would be written into the app slot; the dashboard rejects the filename and the device refuses it outright (it sniffs for a partition-table header at offset `0x8000`).
+>
+> A board on a single-slot table such as `huge_app.csv` is detected at runtime and **refuses** the update rather than erasing the running firmware: `/api/status` reports `"ota": false` and the dashboard hides the option.
+>
+> Switching a board from `huge_app.csv` relocates SPIFFS, so the **first** flash with the new table must go over USB. `nvs` sits at `0x9000` in every table, so **WiFi credentials survive**. Everything in SPIFFS does not: `config.json` (pool, wallet, pool password, alert webhook, WireGuard, timezone, brightness, and the *save stats to NVS* toggle) and the separate `fleet.json` host list are both erased, so re-enter those settings and re-add your miners in the Fleet view. OTA works from then on.
 
 ### WireGuard VPN
 
@@ -309,7 +326,7 @@ With the USB-C port to the right:
 
 - Current project was adapted to work with PlatformIO
 - Current project works with ESP32-S3 and ESP32-wroom.
-- Partition squeme should be build as huge app
+- Partition scheme: boards with the web dashboard use a **two-app-slot** table (`partitions/nerdminer_ota_4MB.csv`, `default_8MB.csv` or `default_16MB.csv`) so `/api/ota` works — see [the OTA partition requirement](#fleet-view). Only display-only boards without the dashboard may use the single-slot `huge_app.csv`
 - All libraries needed shown on platform.ini
 
 ### Job done
