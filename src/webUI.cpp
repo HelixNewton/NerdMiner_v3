@@ -131,7 +131,7 @@ static void handleApiStatus() {
     bool     sub = getMinerSubscribed();
     bool     wok = (WiFi.status() == WL_CONNECTED);
 
-    StaticJsonDocument<896> doc;
+    StaticJsonDocument<1024> doc;
     doc["hashrate_khs"]  = elk;
     doc["total_mhashes"] = mh;
     doc["shares"]        = sh;
@@ -160,7 +160,8 @@ static void handleApiStatus() {
     doc["ota"]           = otaCapable();
 #ifdef ENABLE_WIREGUARD
     doc["wg_enabled"]    = wgIsEnabled();
-    doc["wg_connected"]  = wgIsActive();
+    doc["wg_connected"]  = wgIsActive();   // true only after a real handshake
+    doc["wg_state"]      = wgState();      // off | connecting | up | failed
 #endif
 
     // Device hostname: "NerdMiner-" + last 4 hex of MAC
@@ -235,7 +236,7 @@ static void handleApiConfigGet() {
     addCors();
     if (!checkAuth()) return;
 
-    StaticJsonDocument<896> doc;   // 896: wallet + WG endpoint/keys + alert URL
+    StaticJsonDocument<1024> doc;  // 1024: wallet + WG endpoint/keys/psk flag + alert URL
     doc["pool_url"]   = Settings.PoolAddress;
     doc["pool_port"]  = Settings.PoolPort;
     doc["wallet"]     = String(Settings.BtcWallet);
@@ -245,8 +246,9 @@ static void handleApiConfigGet() {
     doc["alert_url"]     = Settings.alertUrl;
     doc["alert_service"] = Settings.alertService;
 #ifdef ENABLE_WIREGUARD
-    // WireGuard — public/endpoint fields are returned; the private key is
-    // write-only and never leaves the device, only whether one is set.
+    // WireGuard — public/endpoint fields are returned; the private and
+    // preshared keys are write-only and never leave the device, only whether
+    // one is set.
     // Guarded so non-WG builds don't advertise a VPN section the dashboard
     // would otherwise render (it keys off wg_enabled being present).
     doc["wg_enabled"]         = Settings.wgEnabled;
@@ -255,6 +257,7 @@ static void handleApiConfigGet() {
     doc["wg_port"]            = Settings.wgPort;
     doc["wg_peer_public_key"] = Settings.wgPeerPublicKey;
     doc["wg_has_privkey"]     = (Settings.wgPrivateKey.length() > 0);
+    doc["wg_has_psk"]         = (Settings.wgPresharedKey.length() > 0);
 #endif
 
     String out;
@@ -462,7 +465,7 @@ static void handleApiConfigPost() {
         return;
     }
 
-    StaticJsonDocument<1280> doc;  // 1280: pool+wallet, WG keys/endpoint, alert URL
+    StaticJsonDocument<1536> doc;  // 1536: pool+wallet, WG keys/endpoint/psk, alert URL
     DeserializationError err = deserializeJson(doc, body);
     if (err) {
         httpServer.send(400, "application/json",
@@ -520,10 +523,10 @@ static void handleApiConfigPost() {
     }
 
 #ifdef ENABLE_WIREGUARD
-    // WireGuard settings. The private key is write-only: only overwrite it
-    // when a non-empty value is supplied, so re-saving other fields with the
-    // key box left blank keeps the stored key. Guarded so non-WG builds never
-    // persist a key they can't use.
+    // WireGuard settings. The private and preshared keys are write-only: only
+    // overwrite them when a non-empty value is supplied, so re-saving other
+    // fields with the key boxes left blank keeps the stored keys. Guarded so
+    // non-WG builds never persist a key they can't use.
     if (doc.containsKey("wg_enabled"))
         Settings.wgEnabled = (bool)doc["wg_enabled"];
     if (doc.containsKey("wg_local_ip")) {
@@ -551,6 +554,24 @@ static void handleApiConfigPost() {
         pk.trim();
         if (pk.length() > 0) Settings.wgPrivateKey = pk;
     }
+    if (doc.containsKey("wg_preshared_key")) {
+        String psk = doc["wg_preshared_key"].as<String>();
+        psk.trim();
+        if (psk.length() > 0) {
+            // 32 raw bytes → exactly 44 base64 chars. Reject early so a typo
+            // surfaces here rather than as a silent handshake failure.
+            if (psk.length() != 44) {
+                httpServer.send(400, "application/json",
+                    "{\"success\":false,\"error\":\"Preshared key must be 44 base64 characters\"}");
+                return;
+            }
+            Settings.wgPresharedKey = psk;
+        }
+    }
+    // Explicit clear — a blank box keeps the stored key, so servers configured
+    // without a PresharedKey need a way to remove one that was set by mistake.
+    if (doc.containsKey("wg_clear_psk") && (bool)doc["wg_clear_psk"])
+        Settings.wgPresharedKey = "";
     if (Settings.wgPort < 1 || Settings.wgPort > 65535)
         Settings.wgPort = DEFAULT_WG_PORT;
 #endif

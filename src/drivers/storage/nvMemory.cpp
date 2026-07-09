@@ -27,9 +27,9 @@ bool nvMemory::saveConfig(TSettings* Settings)
         // Save Config in JSON format
         Serial.println(F("SPIFS: Saving configuration."));
 
-        // Create a JSON document (1280: WireGuard keys/endpoint + alert webhook
-        // URL would overflow the old 512-byte pool)
-        StaticJsonDocument<1280> json;
+        // Create a JSON document (1536: WireGuard keys/endpoint/preshared key +
+        // alert webhook URL would overflow the old 512-byte pool)
+        StaticJsonDocument<1536> json;
         json[JSON_SPIFFS_KEY_POOLURL] = Settings->PoolAddress;
         json[JSON_SPIFFS_KEY_POOLPORT] = Settings->PoolPort;
         json[JSON_SPIFFS_KEY_POOLPASS] = Settings->PoolPassword;
@@ -44,6 +44,7 @@ bool nvMemory::saveConfig(TSettings* Settings)
         json[JSON_KEY_WG_PORT] = Settings->wgPort;
         json[JSON_KEY_WG_PUBKEY] = Settings->wgPeerPublicKey;
         json[JSON_KEY_WG_PRIVKEY] = Settings->wgPrivateKey;
+        json[JSON_KEY_WG_PSK] = Settings->wgPresharedKey;
         json[JSON_KEY_ALERT_URL] = Settings->alertUrl;
         json[JSON_KEY_ALERT_SVC] = Settings->alertService;
 
@@ -95,7 +96,7 @@ bool nvMemory::loadConfig(TSettings* Settings)
             if (configFile)
             {
                 Serial.println("SPIFS: Loading config file");
-                StaticJsonDocument<1280> json;
+                StaticJsonDocument<1536> json;
                 DeserializationError error = deserializeJson(json, configFile);
                 configFile.close();
                 // Do not dump the raw config to serial — it contains the pool
@@ -130,6 +131,7 @@ bool nvMemory::loadConfig(TSettings* Settings)
                         Settings->wgPort = json[JSON_KEY_WG_PORT].as<int>();
                     Settings->wgPeerPublicKey = json[JSON_KEY_WG_PUBKEY] | Settings->wgPeerPublicKey;
                     Settings->wgPrivateKey = json[JSON_KEY_WG_PRIVKEY] | Settings->wgPrivateKey;
+                    Settings->wgPresharedKey = json[JSON_KEY_WG_PSK] | Settings->wgPresharedKey;
                     Settings->alertUrl = json[JSON_KEY_ALERT_URL] | Settings->alertUrl;
                     Settings->alertService = json[JSON_KEY_ALERT_SVC] | Settings->alertService;
                     return true;

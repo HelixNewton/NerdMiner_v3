@@ -13,7 +13,10 @@
 void wgManagerTick(bool wifiConnected, bool wifiJustConnected);
 
 bool wgIsEnabled();    // user turned it on in config (regardless of link state)
-bool wgIsActive();     // wg.begin() succeeded and the tunnel interface is up
+bool wgIsActive();     // a handshake has completed and the tunnel carries traffic
+
+// "off" | "connecting" | "up" | "failed" — for the dashboard badge.
+const char* wgState();
 
 #endif // ENABLE_WIREGUARD
 #endif // _WG_MANAGER_H_

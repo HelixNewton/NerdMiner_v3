@@ -27,6 +27,7 @@
 #define DEFAULT_WG_PORT		51820
 #define DEFAULT_WG_PUBKEY	""
 #define DEFAULT_WG_PRIVKEY	""
+#define DEFAULT_WG_PSK		""
 // Webhook alerts (block found / pool / VPN / online) — off until a URL is set
 #define DEFAULT_ALERT_URL	""
 #define DEFAULT_ALERT_SVC	"discord"
@@ -52,6 +53,7 @@
 #define JSON_KEY_WG_PORT	"wgPort"
 #define JSON_KEY_WG_PUBKEY	"wgPeerPublicKey"
 #define JSON_KEY_WG_PRIVKEY	"wgPrivateKey"
+#define JSON_KEY_WG_PSK		"wgPresharedKey"
 #define JSON_KEY_ALERT_URL	"alertUrl"
 #define JSON_KEY_ALERT_SVC	"alertService"
 
@@ -85,6 +87,7 @@ struct TSettings
 	int wgPort{ DEFAULT_WG_PORT };
 	String wgPeerPublicKey{ DEFAULT_WG_PUBKEY };
 	String wgPrivateKey{ DEFAULT_WG_PRIVKEY };
+	String wgPresharedKey{ DEFAULT_WG_PSK };
 	// Webhook alerts
 	String alertUrl{ DEFAULT_ALERT_URL };
 	String alertService{ DEFAULT_ALERT_SVC };

@@ -447,7 +447,9 @@ svg.csv{width:100%;height:100%;display:block;overflow:visible}
         <div class="fg"><label class="fl">Server endpoint (host or IP)</label><input class="fi" id="cWgEp" type="text" placeholder="vpn.example.com"></div>
         <div class="fg"><label class="fl">Server public key</label><input class="fi" id="cWgPub" type="text" placeholder="base64 peer public key"></div>
         <div class="fg"><label class="fl">This device&#x2019;s private key <span id="cWgPkState" style="color:var(--mt)"></span></label><input class="fi" id="cWgPriv" type="password" placeholder="base64 private key"></div>
-        <div style="font-size:11px;color:var(--mt)">Keys are stored on the miner and used only for the tunnel. The private key is never sent back to the browser; leave it blank to keep the current one. Saving restarts the miner.</div>
+        <div class="fg"><label class="fl">Preshared key <span id="cWgPskState" style="color:var(--mt)"></span></label><input class="fi" id="cWgPsk" type="password" placeholder="base64 preshared key (optional)"></div>
+        <div class="fc"><input type="checkbox" id="cWgPskClear"><label for="cWgPskClear">Remove the stored preshared key (server has no <code>PresharedKey</code>)</label></div>
+        <div style="font-size:11px;color:var(--mt)">Copy every field from the server&#x2019;s peer config. If it has a <code>PresharedKey</code> line you <strong>must</strong> paste it here or the handshake will silently fail. Keys are stored on the miner and never sent back to the browser; leave a key box blank to keep the current one. Saving restarts the miner.</div>
       </div>
       <div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:12px">
         <div style="font-weight:600;margin-bottom:8px"><i class="ti ti-bell"></i> Alerts &#x2014; webhook notifications</div>
@@ -1154,10 +1156,17 @@ function applyStatus(d){
   prevConn=ok;
   var hd=el('healthDot');if(hd)hd.style.background=ok?'var(--grn)':'var(--red)';
   set('healthTxt',ok?'Healthy':'Degraded');
-  // VPN badge: green when the tunnel is up, muted when enabled-but-down
+  // VPN badge: green only once a handshake has completed. 'failed' means the
+  // server never answered — the tunnel was torn down and direct routing restored.
   var vb=el('vpnBadge');
   if(vb){
-    if(d.wg_enabled){vb.style.display='';vb.className='badge '+(d.wg_connected?'b-ok':'b-err');vb.title='WireGuard VPN '+(d.wg_connected?'tunnel up':'enabled — connecting');}
+    if(d.wg_enabled){
+      var st=d.wg_state||(d.wg_connected?'up':'connecting');
+      var tt={up:'WireGuard VPN — tunnel up',connecting:'WireGuard VPN — handshaking…',failed:'WireGuard VPN — no handshake; check keys, preshared key and port'};
+      vb.style.display='';
+      vb.className='badge '+(st==='up'?'b-ok':'b-err');
+      vb.title=tt[st]||('WireGuard VPN — '+st);
+    }
     else vb.style.display='none';
   }
   var pu=d.pool_url||'';
@@ -1249,7 +1258,10 @@ async function loadCfg(){
       el('cWgPort').value=d.wg_port||51820;
       el('cWgPub').value=d.wg_peer_public_key||'';
       el('cWgPriv').value='';
+      el('cWgPsk').value='';
+      el('cWgPskClear').checked=false;
       set('cWgPkState',d.wg_has_privkey?'(one is set — blank keeps it)':'(none set yet)');
+      set('cWgPskState',d.wg_has_psk?'(one is set — blank keeps it)':'(none set — omit unless the server sends one)');
     }else{
       el('wgSection').style.display='none';
     }
@@ -1263,13 +1275,18 @@ async function saveCfg(){
   if(el('wgSection').style.display!=='none'){
     var wgEn=el('cWgEn').checked;
     var wgIp=el('cWgIp').value.trim(),wgEp=el('cWgEp').value.trim(),wgPub=el('cWgPub').value.trim(),wgPriv=el('cWgPriv').value.trim();
+    var wgPsk=el('cWgPsk').value.trim(),wgPskClear=el('cWgPskClear').checked;
     if(wgEn&&(!wgIp||!wgEp||!wgPub)){toast('VPN needs tunnel IP, endpoint and server public key','err');return;}
     if(wgEn&&!/^\d+\.\d+\.\d+\.\d+$/.test(wgIp)){toast('Tunnel IP must be an IPv4 address','err');return;}
+    if(wgPsk&&wgPsk.length!==44){toast('Preshared key must be 44 base64 characters','err');return;}
+    if(wgPsk&&wgPskClear){toast('Either paste a preshared key or tick Remove — not both','err');return;}
     body.wg_enabled=wgEn;
     body.wg_local_ip=wgIp;body.wg_endpoint=wgEp;
     body.wg_port=parseInt(el('cWgPort').value)||51820;
     body.wg_peer_public_key=wgPub;
     if(wgPriv)body.wg_private_key=wgPriv; // blank = keep existing key
+    if(wgPsk)body.wg_preshared_key=wgPsk; // blank = keep existing key
+    if(wgPskClear)body.wg_clear_psk=true;
   }
   set('cMsg','Saving...');
   try{
