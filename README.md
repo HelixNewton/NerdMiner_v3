@@ -28,7 +28,7 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 - **OTA firmware update** — drag-and-drop `.bin` upload with progress bar; no USB cable needed
 - **Restart / Factory Reset** — one-click buttons with confirmation dialogs
 - **Optional API token auth** — protect the API behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags). The dashboard prompts for the token on first use and remembers it per-browser (Settings → API token); one token works across the whole fleet, including fleet-wide restart and OTA
-- **WireGuard VPN** *(opt-in build)* — a full-tunnel WireGuard client so a miner behind NAT is reachable at its tunnel IP and its pool traffic is encrypted end-to-end. Configure the tunnel IP, server endpoint, and keys in Settings; a VPN badge shows tunnel state. See [WireGuard VPN](#wireguard-vpn) below
+- **WireGuard VPN** *(opt-in build)* — a full-tunnel WireGuard client so a miner behind NAT is reachable at its tunnel IP and its pool traffic is encrypted end-to-end. Supports preshared keys, reports the real handshake state, and falls back to direct routing if the tunnel never comes up. Configure the tunnel IP, server endpoint, and keys in Settings; a VPN badge shows tunnel state. See [WireGuard VPN](#wireguard-vpn) below
 - **Webhook alerts** — the miner posts to a **Discord**, **ntfy**, or generic JSON webhook when it finds a block, its pool or VPN drops, or it comes online. Configure it in Settings with a **Send test** button; works with no browser open (the device sends directly)
 - **Themes** — switch the dashboard skin in Settings: **Classic** (dark + gold), **Cyber Matrix** (phosphor-green terminal), **Synthwave**, or **Nord**. Applies instantly and is remembered per-browser
 - **Mobile-friendly** — responsive dark UI, works on any browser
@@ -81,12 +81,17 @@ A miner can join a [WireGuard](https://www.wireguard.com/) VPN as a full-tunnel 
 | Tunnel IP (this device) | `10.6.0.2` | the address your WG server assigns this peer |
 | Server endpoint | `vpn.example.com` | host or IP of your WG server (resolved via DNS) |
 | Endpoint port | `51820` | |
-| Server public key | `base64…` | your WG server's public key |
+| Server public key | `base64…` | your WG server's public key (`PublicKey` under `[Peer]`) |
 | This device's private key | `base64…` | stored on the miner; **never** returned by the API — leave blank when editing to keep the current one |
+| Preshared key | `base64…` | optional, 44 chars. **Required if your server's peer config has a `PresharedKey` line** — omit it and the handshake fails silently |
 
-Generate a keypair with `wg genkey | tee privatekey | wg pubkey > publickey`; put the **private** key on the miner and add the miner's **public** key (with `AllowedIPs = 10.6.0.2/32`) as a `[Peer]` on your server. Saving restarts the miner; a **VPN** badge in the header shows tunnel state (green = up). The tunnel needs the clock set, which the miner does from NTP before bringing WireGuard up.
+The simplest route is to have your server generate a peer config and copy each line across: `Address` → tunnel IP (drop the `/32`), `PrivateKey` → private key, `PublicKey` → server public key, `PresharedKey` → preshared key, and `Endpoint` → server endpoint + port. Take the port from that config rather than assuming `51820` — servers that create one WireGuard instance per device (FRITZ!Box, for example) hand out a different port each time. Otherwise generate a keypair yourself with `wg genkey | tee privatekey | wg pubkey > publickey`, put the **private** key on the miner and add the miner's **public** key (with `AllowedIPs = 10.6.0.2/32`) as a `[Peer]` on your server.
 
-> **Security:** the private key lives in the miner's `config.json` (SPIFFS) and is used only for the tunnel — it is write-only over the API (never sent back to a browser) and is never printed to the serial console. Two limitations to understand:
+Saving restarts the miner. The **VPN** badge in the header turns green only after a real handshake completes; `/api/status` reports `wg_state` as `off`, `connecting`, `up`, or `failed`. If no handshake lands within 20 s the miner tears the tunnel down, restores direct routing, and retries three times before giving up — so a wrong key or port leaves you with a reachable miner and no VPN, never a miner that has vanished off the network. The serial log names the likely cause. The tunnel needs the clock set, which the miner does from NTP before bringing WireGuard up.
+
+> **Preshared keys:** many server front-ends (FRITZ!Box, wg-easy, PiVPN) add a `PresharedKey` to every peer they generate. The upstream `WireGuard-ESP32` Arduino wrapper hard-codes `preshared_key = NULL` and can never handshake with such a server, so this firmware drives the underlying `wireguardif` layer directly instead. If your server has no `PresharedKey`, leave the field empty; tick **Remove the stored preshared key** to clear one that was set by mistake.
+
+> **Security:** the private and preshared keys live in the miner's `config.json` (SPIFFS) and are used only for the tunnel — both are write-only over the API (never sent back to a browser; `/api/config` returns only `wg_has_privkey` / `wg_has_psk`) and are never printed to the serial console. Two limitations to understand:
 > - **Build with `WEBUI_AUTH_TOKEN`.** Without a token, `checkAuth()` allows everyone, so any device on your LAN can `POST /api/config` a new endpoint + private key and, after the automatic restart, redirect the miner's full tunnel through *their* server. On a VPN build the token is not optional.
 > - **No TLS.** The ESP32 serves plain HTTP, so the private key travels the LAN in cleartext when you first paste it into Settings. Provision over a trusted network segment.
 >
