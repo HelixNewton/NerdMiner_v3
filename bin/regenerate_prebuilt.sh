@@ -29,7 +29,7 @@ ENVS=(
 )
 # Envs with the web dashboard (ENABLE_WEBUI) — their firmware MUST contain it.
 # The rest are display-only miners with no web UI, which is correct for them.
-WEBUI=" ESP32-devKitv1 esp32-s3-devkitc1-n32r8 ESP32-S3-devKitv1 NerdminerV2 NerdminerV2-S3-AMOLED NerdminerV2-T-HMI "
+WEBUI=" ESP32-devKitv1 esp32-s3-devkitc1-n32r8 ESP32-S3-devKitv1 NerdminerV2 NerdminerV2-S3-AMOLED NerdminerV2-T-HMI ESP32-2432S028R ESP32_2432S028_2USB ESP32-2432S024 "
 
 ONLY="${1:-}"
 ok=0; fail=0; failed=""
