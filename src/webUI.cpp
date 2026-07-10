@@ -10,6 +10,9 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <cctype>
+#include <time.h>
+#include <sys/time.h>
+#include <NTPClient.h>
 #include "mining.h"
 #include "monitor.h"
 #include "drivers/storage/storage.h"
@@ -30,6 +33,7 @@ extern volatile uint32_t valids;
 extern double best_diff;
 extern monitor_data mMonitor;
 extern TSettings Settings;
+extern NTPClient timeClient;   // defined in monitor.cpp
 
 // ── Extern function declared in mining.h ────────────────────────────────
 // getMinerSubscribed() is defined in mining.cpp
@@ -38,10 +42,93 @@ extern TSettings Settings;
 static WebServer httpServer(WEBUI_PORT);
 static nvMemory nvMem;
 
-// Event flags (set by notify hooks, cleared after status read)
+// Event flags (set by notify hooks, cleared after status read). Kept for
+// backward compatibility with older dashboards; new dashboards prefer the
+// append-only event ring below, which no browser can consume out from under
+// another (the flags are read-and-clear, so the first poller wins).
 static volatile bool ev_share_accepted  = false;
 static volatile bool ev_share_rejected  = false;
 static volatile bool ev_pool_disconnect = false;
+
+// ── Hashrate history rings (GET /api/history) ──────────────────────────────
+// One ring per dashboard range, each sampled at its own cadence from the webui
+// loop. ~3.5 KB static .bss. Values are integer KH/s (elapsedKHs), oldest first.
+static const char* const HIST_RANGE[5] = { "1h", "6h", "24h", "7d", "30d" };
+static const uint16_t     HIST_CAP[5]  = { 60,   72,   288,   336,   360   };
+static const uint32_t     HIST_STEPMS[5] = { 60000UL, 300000UL, 300000UL, 1800000UL, 7200000UL };
+static uint16_t histBuf[5][360];
+static uint16_t histCount[5] = { 0 };
+static uint16_t histHead[5]  = { 0 };   // next write index
+static uint32_t histLastMs[5] = { 0 };
+static bool     histPrimed = false;     // seed histLastMs on first tick
+
+// Append the current hashrate to whichever rings are due. Called from the
+// webui task loop (single writer), read by handleApiHistory (same task) — no
+// lock needed because both run in the webui task.
+static void historySample() {
+    uint32_t now = millis();
+    if (!histPrimed) { for (int i = 0; i < 5; i++) histLastMs[i] = now; histPrimed = true; }
+    uint32_t kh32 = elapsedKHs;
+    uint16_t kh = (kh32 > 65535U) ? 65535U : (uint16_t)kh32;
+    for (int i = 0; i < 5; i++) {
+        uint32_t gap = (uint32_t)(now - histLastMs[i]);
+        if (gap < HIST_STEPMS[i]) continue;
+        // Normal case advances by exactly one step to keep the cadence phase
+        // stable; a huge gap (millis() wrap, or a long stall) snaps to now so we
+        // record one sample instead of bursting to catch up.
+        histLastMs[i] = (gap > 4 * HIST_STEPMS[i]) ? now : (histLastMs[i] + HIST_STEPMS[i]);
+        histBuf[i][histHead[i]] = kh;
+        histHead[i] = (uint16_t)((histHead[i] + 1) % HIST_CAP[i]);
+        if (histCount[i] < HIST_CAP[i]) histCount[i]++;
+    }
+}
+
+// ── Event ring (GET /api/events) ───────────────────────────────────────────
+// Append-only; producers are the notify hooks (mining/stratum tasks), the
+// consumer is the webui task — hence the spinlock. Epoch-stamped so the client
+// can page with ?since=<epoch>.
+struct WebEvent { uint32_t t; uint8_t kind; float diff; };
+static const uint8_t   EVR_CAP = 48;
+static const char* const EVR_KIND[] = { "", "share_accepted", "share_rejected", "pool_disconnect" };
+static WebEvent  evrBuf[EVR_CAP];
+static uint8_t   evrHead  = 0;   // next write index
+static uint8_t   evrCount = 0;
+static portMUX_TYPE evrMux = portMUX_INITIALIZER_UNLOCKED;
+
+// Nothing seeds the system clock except wgManager's ensureSystemClock(), and
+// that whole file compiles out without ENABLE_WIREGUARD. So on a stock build
+// time(nullptr) counts from boot and every event would be stamped in 1970.
+// Seed it here too: idempotent, and UTC to match wgManager, so whichever runs
+// first the other early-outs and the WG replay window never sees a jump.
+static const unsigned long WEBUI_EPOCH_FLOOR = 1700000000UL;   // 2023-11-14
+
+static bool webuiClockReady() {
+    if (time(nullptr) > (time_t)WEBUI_EPOCH_FLOOR) return true;
+    // timeClient carries the user's timezone offset (setTimeOffset in
+    // monitor.cpp); strip it so the system clock is UTC.
+    long epoch = (long)timeClient.getEpochTime() - 3600L * Settings.Timezone;
+    if (epoch < (long)WEBUI_EPOCH_FLOOR) return false;   // NTP not ready yet
+    struct timeval tv;
+    tv.tv_sec  = (time_t)epoch;
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+    return true;
+}
+
+static void pushWebEvent(uint8_t kind) {
+    // A share landing before NTP syncs gets t=0. handleApiEvents' `t <= since`
+    // filter drops those rather than emit a 1970 timestamp the feed would
+    // render as garbage.
+    uint32_t now = webuiClockReady() ? (uint32_t)time(nullptr) : 0;
+    float d = (float)best_diff;
+    portENTER_CRITICAL(&evrMux);
+    evrBuf[evrHead].t = now;
+    evrBuf[evrHead].kind = kind;
+    evrBuf[evrHead].diff = d;
+    evrHead = (uint8_t)((evrHead + 1) % EVR_CAP);
+    if (evrCount < EVR_CAP) evrCount++;
+    portEXIT_CRITICAL(&evrMux);
+}
 
 // Rate-limit config POST: one change per 5 seconds
 static unsigned long last_config_save_ms = 0;
@@ -150,6 +237,12 @@ static void handleApiStatus() {
     doc["wifi_ssid"]     = wok ? WiFi.SSID() : String("");
     doc["free_heap"]     = (uint32_t)ESP.getFreeHeap();
     doc["total_heap"]    = (uint32_t)ESP.getHeapSize();
+    // On-die temperature. Real sensor on S2/S3/C3; on the classic ESP32 the
+    // reading comes from the deprecated temprature_sens_read() and is not
+    // trustworthy, so omit it there (the dashboard hides the card when absent).
+#if !defined(CONFIG_IDF_TARGET_ESP32)
+    doc["temp_c"]        = temperatureRead();
+#endif
     doc["ip"]            = wok ? WiFi.localIP().toString() : String("0.0.0.0");
     doc["pool_url"]      = Settings.PoolAddress;
     doc["pool_port"]     = Settings.PoolPort;
@@ -819,6 +912,63 @@ static void handleNotFound() {
 }
 
 // ── WebUI FreeRTOS task ────────────────────────────────────────────────────
+// GET /api/history?range=1h|6h|24h|7d|30d — downsampled hashrate ring.
+// Returns {"range","step"(seconds),"khs":[oldest..newest]}.
+static void handleApiHistory() {
+    addCors();
+    String r = httpServer.hasArg("range") ? httpServer.arg("range") : String("24h");
+    int idx = -1;
+    for (int i = 0; i < 5; i++) if (r == HIST_RANGE[i]) { idx = i; break; }
+    if (idx < 0) { httpServer.send(400, "application/json", "{\"error\":\"bad range\"}"); return; }
+
+    uint16_t cap = HIST_CAP[idx], cnt = histCount[idx], head = histHead[idx];
+    uint16_t start = (cnt < cap) ? 0 : head;   // oldest sample
+    String out;
+    out.reserve((size_t)cnt * 6 + 48);
+    out += "{\"range\":\""; out += HIST_RANGE[idx];
+    out += "\",\"step\":"; out += (HIST_STEPMS[idx] / 1000UL);
+    out += ",\"khs\":[";
+    for (uint16_t k = 0; k < cnt; k++) {
+        if (k) out += ',';
+        out += histBuf[idx][(uint16_t)((start + k) % cap)];
+    }
+    out += "]}";
+    httpServer.send(200, "application/json", out);
+}
+
+// GET /api/events?since=<epoch> — append-only event ring, newest-inclusive of
+// events strictly after `since`. Fixes the read-and-clear latch race.
+static void handleApiEvents() {
+    addCors();
+    uint32_t since = httpServer.hasArg("since")
+        ? (uint32_t)strtoul(httpServer.arg("since").c_str(), nullptr, 10) : 0;
+
+    // Snapshot under the lock, then build JSON outside it.
+    WebEvent snap[EVR_CAP];
+    uint8_t cnt, head;
+    portENTER_CRITICAL(&evrMux);
+    cnt = evrCount; head = evrHead;
+    memcpy(snap, evrBuf, sizeof(evrBuf));
+    portEXIT_CRITICAL(&evrMux);
+
+    uint8_t start = (cnt < EVR_CAP) ? 0 : head;
+    String out; out.reserve((size_t)cnt * 48 + 8);
+    out += '[';
+    bool first = true;
+    for (uint8_t k = 0; k < cnt; k++) {
+        const WebEvent& e = snap[(uint8_t)((start + k) % EVR_CAP)];
+        if (e.t <= since || e.kind == 0 || e.kind >= (uint8_t)(sizeof(EVR_KIND)/sizeof(EVR_KIND[0]))) continue;
+        if (!first) out += ',';
+        first = false;
+        char buf[80];
+        snprintf(buf, sizeof(buf), "{\"t\":%lu,\"kind\":\"%s\",\"diff\":%.4f}",
+                 (unsigned long)e.t, EVR_KIND[e.kind], (double)e.diff);
+        out += buf;
+    }
+    out += ']';
+    httpServer.send(200, "application/json", out);
+}
+
 static void webui_task(void* pvParameters) {
     (void)pvParameters;
     Serial.printf("[WEBUI] Task started — heap: %u bytes free\n", esp_get_free_heap_size());
@@ -834,6 +984,8 @@ static void webui_task(void* pvParameters) {
     httpServer.on("/api/config",    HTTP_GET,     handleApiConfigGet);
     httpServer.on("/api/config",    HTTP_POST,    handleApiConfigPost);
     httpServer.on("/api/pools",     HTTP_GET,     handleApiPools);
+    httpServer.on("/api/history",   HTTP_GET,     handleApiHistory);
+    httpServer.on("/api/events",    HTTP_GET,     handleApiEvents);
     httpServer.on("/api/fleet",     HTTP_GET,     handleApiFleetGet);
     httpServer.on("/api/fleet",     HTTP_POST,    handleApiFleetPost);
     httpServer.on("/api/discover",  HTTP_GET,     handleApiDiscover);
@@ -878,6 +1030,8 @@ static void webui_task(void* pvParameters) {
         wgManagerTick(wifiNow, wifiJustUp);
 #endif
         wifiWasConnected = wifiNow;
+        if (wifiNow) webuiClockReady();   // seed the clock once NTP is up
+        historySample();          // append to the hashrate rings on their cadence
         httpServer.handleClient();
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
@@ -900,8 +1054,8 @@ void webui_init() {
     alerts_init();   // webhook notifications (inert until a URL is configured)
 }
 
-void webui_notify_share_accepted()  { ev_share_accepted  = true; }
-void webui_notify_share_rejected()  { ev_share_rejected  = true; }
-void webui_notify_pool_disconnected() { ev_pool_disconnect = true; }
+void webui_notify_share_accepted()  { ev_share_accepted  = true; pushWebEvent(1); }
+void webui_notify_share_rejected()  { ev_share_rejected  = true; pushWebEvent(2); }
+void webui_notify_pool_disconnected() { ev_pool_disconnect = true; pushWebEvent(3); }
 
 #endif // ENABLE_WEBUI
