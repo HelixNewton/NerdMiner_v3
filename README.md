@@ -18,10 +18,10 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 
 ### Features
 
-- **Live stats** — hashrate, shares accepted/rejected, best difficulty, uptime, free heap, templates received
+- **Live stats** — hashrate, shares accepted/rejected, best difficulty, uptime, free heap, on-die temperature (S3), templates received, plus a live **System Health** score and activity feed
 - **Fleet view** — monitor *all* your miners from one dashboard: **Scan LAN** auto-discovers every NerdMiner on your subnet via mDNS (or add them by IP/hostname), then see combined hashrate, total shares, per-device status, and firmware version side by side. **Restart all** applies one action to the entire fleet. Firmware is updated per-miner from its own dashboard — see [OTA](#fleet-view)
 - **Real-time share log & alerts** — accepted/rejected shares and pool disconnects appear live as they happen
-- **Real-time hashrate chart** — canvas sparkline with rolling window
+- **Hashrate history chart** — selectable **1H / 6H / 24H / 7D / 30D** ranges backed by an on-device ring buffer (`/api/history`), with current / average / max / min / variance readouts
 - **One-click pool switching** — pick a pool from the toolbar dropdown to retarget the miner instantly (list is served from the firmware's pool registry)
 - **Pool & WiFi status** — connection state, IP address, signal strength
 - **Config panel** — update wallet address, pool URL/port, and timezone directly from the browser
@@ -30,12 +30,16 @@ NerdMiner v3 adds a **built-in web dashboard** served directly from the device �
 - **Optional API token auth** — protect the API behind a bearer token (set `WEBUI_AUTH_TOKEN` in build flags). The dashboard prompts for the token on first use and remembers it per-browser (Settings → API token); one token works across the whole fleet, including fleet-wide restart and OTA
 - **WireGuard VPN** *(opt-in build)* — a full-tunnel WireGuard client so a miner behind NAT is reachable at its tunnel IP and its pool traffic is encrypted end-to-end. Supports preshared keys, reports the real handshake state, and falls back to direct routing if the tunnel never comes up. Configure the tunnel IP, server endpoint, and keys in Settings; a VPN badge shows tunnel state. See [WireGuard VPN](#wireguard-vpn) below
 - **Webhook alerts** — the miner posts to a **Discord**, **ntfy**, or generic JSON webhook when it finds a block, its pool or VPN drops, or it comes online. Configure it in Settings with a **Send test** button; works with no browser open (the device sends directly)
-- **Themes** — switch the dashboard skin in Settings: **Classic** (dark + gold), **Cyber Matrix** (phosphor-green terminal), **Synthwave**, or **Nord**. Applies instantly and is remembered per-browser
+- **Themes** — switch the dashboard skin in Settings: **Aurora** (the default cyan/violet), **Classic** (dark + gold), **Cyber Matrix** (phosphor-green terminal), **Synthwave**, or **Nord**. Applies instantly and is remembered per-browser
 - **Mobile-friendly** — responsive dark UI, works on any browser
 
 The **Fleet** view aggregates every miner on your network in one place — add them manually or hit **Scan LAN** to auto-discover them:
 
 ![Fleet view](images/fleet_preview.png)
+
+Five built-in **themes** re-skin the whole dashboard instantly (here: **Cyber Matrix** and **Synthwave**):
+
+![Dashboard themes](images/themes_preview.png)
 
 ### Accessing the Dashboard
 
